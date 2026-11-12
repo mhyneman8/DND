@@ -1,3 +1,4 @@
+import { Eye, EyeOff } from "lucide-react"
 import { useState } from "react"
 import { messageOf } from "../lib/text.ts"
 import { useApp } from "../state/AppState.tsx"
@@ -12,6 +13,7 @@ export function AuthScreen() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   return (
     <div className="grid min-h-dvh place-items-center px-6 py-12">
@@ -55,16 +57,27 @@ export function AuthScreen() {
           <label className="text-sm text-muted" htmlFor="password">
             Password
           </label>
-          <input
-            id="password"
-            type="password"
-            autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
-            value={password}
-            required
-            minLength={6}
-            className={fieldClass}
-            onChange={(event) => setPassword(event.target.value)}
-          />
+          <div className="relative">
+            <input
+              id="password"
+              type={showPassword ? "text" : "password"}
+              autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
+              value={password}
+              required
+              minLength={6}
+              className={`${fieldClass} pr-10`}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+            <button
+              type="button"
+              className="absolute inset-y-0 right-1 inline-flex items-center px-1 text-muted hover:text-cream"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-pressed={showPassword}
+              onClick={() => setShowPassword((current) => !current)}
+            >
+              {showPassword ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+            </button>
+          </div>
           {mode === "create" && <p className="text-xs text-faint">At least 6 characters.</p>}
           {error && <p className="text-sm text-danger">{error}</p>}
           {notice && <p className="text-sm text-cream">{notice}</p>}
