@@ -1,0 +1,208 @@
+-- DM Table schema. Run this once in the Supabase SQL editor.
+-- Then set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.
+
+create extension if not exists pgcrypto;
+
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+create table if not exists public.campaigns (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  name text not null,
+  color text not null default '#e0a45a',
+  overview jsonb not null default '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.entries (
+  id uuid primary key default gen_random_uuid(),
+  campaign_id uuid not null references public.campaigns (id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  section text not null check (section in (
+    'story-beats', 'pcs', 'npcs', 'monsters', 'afflictions', 'locations', 'maps', 'misc'
+  )),
+  subsection text not null default '',
+  name text not null,
+  body jsonb not null default '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb,
+  image_path text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.list_items (
+  id uuid primary key default gen_random_uuid(),
+  entry_id uuid not null references public.entries (id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  list_key text not null,
+  label text not null,
+  linked_entry_id uuid references public.entries (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.links (
+  id uuid primary key default gen_random_uuid(),
+  campaign_id uuid not null references public.campaigns (id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  source_entry_id uuid not null references public.entries (id) on delete cascade,
+  target_entry_id uuid not null references public.entries (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (source_entry_id, target_entry_id),
+  check (source_entry_id <> target_entry_id)
+);
+
+create index if not exists campaigns_user_idx on public.campaigns (user_id);
+create index if not exists entries_campaign_section_idx on public.entries (campaign_id, section);
+create index if not exists list_items_entry_idx on public.list_items (entry_id);
+create index if not exists links_campaign_idx on public.links (campaign_id);
+create index if not exists links_target_idx on public.links (target_entry_id);
+
+create table if not exists public.plot_subsections (
+  id uuid primary key default gen_random_uuid(),
+  campaign_id uuid not null references public.campaigns (id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  name text not null,
+  description jsonb not null default '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.story_items (
+  id uuid primary key default gen_random_uuid(),
+  campaign_id uuid not null references public.campaigns (id) on delete cascade,
+  subsection_id uuid not null references public.plot_subsections (id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  kind text not null check (kind in ('session', 'arc')),
+  name text not null,
+  session_date date,
+  body jsonb not null default '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb,
+  resolved boolean not null default false,
+  show_on_home boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists plot_subsections_campaign_idx on public.plot_subsections (campaign_id);
+create index if not exists story_items_campaign_idx on public.story_items (campaign_id, kind);
+
+drop trigger if exists campaigns_updated_at on public.campaigns;
+create trigger campaigns_updated_at
+before update on public.campaigns
+for each row execute function public.set_updated_at();
+
+drop trigger if exists entries_updated_at on public.entries;
+create trigger entries_updated_at
+before update on public.entries
+for each row execute function public.set_updated_at();
+
+drop trigger if exists plot_subsections_updated_at on public.plot_subsections;
+create trigger plot_subsections_updated_at
+before update on public.plot_subsections
+for each row execute function public.set_updated_at();
+
+drop trigger if exists story_items_updated_at on public.story_items;
+create trigger story_items_updated_at
+before update on public.story_items
+for each row execute function public.set_updated_at();
+
+alter table public.campaigns enable row level security;
+alter table public.entries enable row level security;
+alter table public.list_items enable row level security;
+alter table public.links enable row level security;
+alter table public.plot_subsections enable row level security;
+alter table public.story_items enable row level security;
+
+drop policy if exists "campaigns_all" on public.campaigns;
+create policy "campaigns_all" on public.campaigns
+for all to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+drop policy if exists "entries_all" on public.entries;
+create policy "entries_all" on public.entries
+for all to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+drop policy if exists "list_items_all" on public.list_items;
+create policy "list_items_all" on public.list_items
+for all to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+drop policy if exists "links_all" on public.links;
+create policy "links_all" on public.links
+for all to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+drop policy if exists "plot_subsections_all" on public.plot_subsections;
+create policy "plot_subsections_all" on public.plot_subsections
+for all to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+drop policy if exists "story_items_all" on public.story_items;
+create policy "story_items_all" on public.story_items
+for all to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+-- Earlier drafts stored campaigns under a worlds table. Drop that layer if it is still there.
+alter table public.campaigns drop column if exists world_id;
+drop table if exists public.worlds;
+
+grant select, insert, update, delete on public.campaigns, public.entries, public.list_items, public.links, public.plot_subsections, public.story_items to authenticated;
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'campaign-media',
+  'campaign-media',
+  false,
+  8388608,
+  array['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+)
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "campaign_media_read" on storage.objects;
+create policy "campaign_media_read" on storage.objects
+for select to authenticated
+using (
+  bucket_id = 'campaign-media'
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
+
+drop policy if exists "campaign_media_insert" on storage.objects;
+create policy "campaign_media_insert" on storage.objects
+for insert to authenticated
+with check (
+  bucket_id = 'campaign-media'
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
+
+drop policy if exists "campaign_media_update" on storage.objects;
+create policy "campaign_media_update" on storage.objects
+for update to authenticated
+using (
+  bucket_id = 'campaign-media'
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
+
+drop policy if exists "campaign_media_delete" on storage.objects;
+create policy "campaign_media_delete" on storage.objects
+for delete to authenticated
+using (
+  bucket_id = 'campaign-media'
+  and (storage.foldername(name))[1] = auth.uid()::text
+);

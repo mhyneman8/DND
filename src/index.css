@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --color-ink: #1a1612;
+  --color-panel: #231e19;
+  --color-raised: #2e2822;
+  --color-line: #433a32;
+  --color-cream: #f6efe4;
+  --color-muted: #c9bbaa;
+  --color-faint: #a89884;
+  --color-gold: #e0a45a;
+  --color-danger: #e7a094;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  --campaign: #e0a45a;
+  margin: 0;
+  background: var(--color-ink);
+  color: var(--color-cream);
+  font-family: var(--font-sans);
+  color-scheme: dark;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--campaign) 55%, white);
+  color: var(--color-ink);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #4a4038 transparent;
+}
+
+.shell {
+  background:
+    radial-gradient(1100px 480px at -10% -20%, color-mix(in srgb, var(--campaign) 26%, transparent), transparent 62%),
+    var(--color-ink);
+}
+
+.kicker {
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.panel {
+  display: flex;
+  width: 34%;
+  min-width: 300px;
+  flex: none;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-panel) 94%, black);
+}
+
+.rich-text {
+  min-height: var(--editor-min, 140px);
+  padding: 0.75rem 0.85rem 1rem;
+  outline: none;
+  color: var(--color-cream);
+}
+
+.rich-text p {
+  margin: 0.35em 0;
+}
+
+.rich-text ul,
+.rich-text ol {
+  margin: 0.4em 0;
+  padding-left: 1.2rem;
+}
+
+.rich-text ul {
+  list-style: disc;
+}
+
+.rich-text ol {
+  list-style: decimal;
+}
+
+.rich-text p.is-editor-empty:first-child::before,
+.rich-text p.is-empty::before {
+  float: left;
+  height: 0;
+  color: var(--color-faint);
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+.rich-text mark {
+  border-radius: 0.15em;
+  padding: 0 0.12em;
+  color: #1a1612;
+}
+
+@media (max-width: 900px) {
+  .panel {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    width: auto;
+    min-width: 0;
+    border-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .panel {
+    animation: panel-in 180ms ease-out;
+  }
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0.45;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

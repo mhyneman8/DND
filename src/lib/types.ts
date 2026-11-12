@@ -1,0 +1,86 @@
+import type { JSONContent } from "@tiptap/core"
+
+export type RichDoc = JSONContent
+
+export type Campaign = {
+  id: string
+  name: string
+  color: string
+  overview: RichDoc
+  createdAt: string
+  updatedAt: string
+}
+
+export type CampaignPatch = Partial<Pick<Campaign, "name" | "color" | "overview">>
+
+export type PanelSectionId =
+  | "story-beats"
+  | "pcs"
+  | "npcs"
+  | "monsters"
+  | "afflictions"
+  | "locations"
+  | "maps"
+  | "misc"
+
+export type SectionId = "home" | PanelSectionId
+
+export type Entry = {
+  id: string
+  campaignId: string
+  section: PanelSectionId
+  subsection: string
+  name: string
+  body: RichDoc
+  imagePath: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type EntryPatch = Partial<Pick<Entry, "name" | "subsection" | "body" | "imagePath">>
+
+export type ListItem = {
+  id: string
+  entryId: string
+  listKey: string
+  label: string
+  linkedEntryId: string | null
+  createdAt: string
+}
+
+export type EntryLink = {
+  id: string
+  campaignId: string
+  sourceEntryId: string
+  targetEntryId: string
+  createdAt: string
+}
+
+export type PlotSubsection = {
+  id: string
+  campaignId: string
+  name: string
+  description: RichDoc
+  createdAt: string
+  updatedAt: string
+}
+
+export type PlotSubsectionPatch = Partial<Pick<PlotSubsection, "name" | "description">>
+
+export type StoryKind = "session" | "arc"
+
+export type StoryItem = {
+  id: string
+  campaignId: string
+  subsectionId: string
+  kind: StoryKind
+  name: string
+  sessionDate: string | null
+  body: RichDoc
+  resolved: boolean
+  showOnHome: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type StoryItemPatch = Partial<Pick<StoryItem, "name" | "sessionDate" | "body" | "resolved" | "showOnHome">>
