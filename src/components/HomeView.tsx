@@ -6,6 +6,7 @@ import type { Campaign, RichDoc } from "../lib/types.ts"
 import { useAutosave } from "../lib/useAutosave.ts"
 import { useApp } from "../state/AppState.tsx"
 import { AfflictionMark } from "./AfflictionMark.tsx"
+import { StickyBoard } from "./StickyNotes.tsx"
 import { ColorSwatches } from "./ColorSwatches.tsx"
 import { RichTextField } from "./RichTextField.tsx"
 import { fieldClass, primaryClass } from "./styles.ts"
@@ -19,7 +20,7 @@ export function HomeView() {
 }
 
 function CampaignHome({ campaign }: { campaign: Campaign }) {
-  const { entries, links, storyItems, entriesLoadedFor, selectSection, selectEntry, openEntry } = useApp()
+  const { entries, links, storyItems, entriesLoadedFor, notesOpen, setNotesOpen, selectSection, selectEntry, openEntry } = useApp()
   const ready = entriesLoadedFor === campaign.id
   const campaignEntries = entries.filter((entry) => entry.campaignId === campaign.id)
   const prep = storyItems
@@ -83,6 +84,27 @@ function CampaignHome({ campaign }: { campaign: Campaign }) {
               </li>
             ))}
           </ul>
+        )}
+      </section>
+
+      <section>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="kicker">Sticky notes</h2>
+          {!notesOpen && (
+            <button type="button" className="text-sm text-muted hover:text-cream" onClick={() => setNotesOpen(true)}>
+              Pop out
+            </button>
+          )}
+        </div>
+        {notesOpen ? (
+          <p className="text-sm text-muted">
+            These notes are in the window.{" "}
+            <button type="button" className="text-[var(--campaign)]" onClick={() => setNotesOpen(false)}>
+              Put them back
+            </button>
+          </p>
+        ) : (
+          <StickyBoard />
         )}
       </section>
 

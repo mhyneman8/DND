@@ -5,6 +5,8 @@ import { useApp } from "../state/AppState.tsx"
 import { CatalogSection } from "./Catalogs.tsx"
 import { EntryEditor } from "./EntryEditor.tsx"
 import { EntryList } from "./EntryList.tsx"
+import { Maps } from "./Maps.tsx"
+import { Monsters } from "./Monsters.tsx"
 import { Npcs } from "./Npcs.tsx"
 import { PlayerCharacters } from "./PlayerCharacters.tsx"
 import { StoryBeats } from "./StoryBeats.tsx"
@@ -35,7 +37,9 @@ export function SectionPanel() {
   const storyOpen =
     activeSection === "story-beats" && storyItems.some((item) => item.id === activeEntryId && item.campaignId === campaign?.id)
 
-  const sheetOpen = (activeSection === "pcs" || activeSection === "npcs") && Boolean(entry)
+  const sheetOpen =
+    (activeSection === "pcs" || activeSection === "npcs" || activeSection === "maps" || activeSection === "monsters") &&
+    Boolean(entry)
 
   return (
     <section className={sheetOpen ? "panel panel-wide" : "panel"} aria-label={section.label}>
@@ -61,6 +65,10 @@ export function SectionPanel() {
           <PlayerCharacters />
         ) : activeSection === "npcs" ? (
           <Npcs />
+        ) : activeSection === "monsters" ? (
+          <Monsters />
+        ) : activeSection === "maps" ? (
+          <Maps />
         ) : activeSection === "afflictions" || activeSection === "locations" || activeSection === "misc" ? (
           <CatalogSection section={activeSection} />
         ) : entry ? (

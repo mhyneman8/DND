@@ -74,6 +74,192 @@ input {
   min-width: 420px;
 }
 
+.panel:has(.encounter-frame) {
+  width: min(76rem, 88%);
+  min-width: 420px;
+}
+
+.stat-block {
+  border-radius: 0.35rem;
+  background: #f6edd6;
+  color: #24180f;
+  padding: 1.05rem 1.15rem 1.15rem;
+  font-family: var(--font-serif);
+  box-shadow: inset 0 0 0 1px #c4a574;
+}
+
+.stat-block .stat-name {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1.1;
+  outline: none;
+}
+
+.stat-block .stat-meta {
+  margin: 0.2rem 0 0;
+  font-style: italic;
+}
+
+.stat-block .stat-meta input {
+  width: auto;
+  max-width: 16rem;
+  field-sizing: content;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-style: italic;
+  outline: none;
+}
+
+.stat-rule {
+  height: 2px;
+  margin: 0.45rem 0 0.4rem;
+  background: #7a1f1f;
+}
+
+.stat-block .stat-line {
+  margin: 0.08rem 0;
+  line-height: 1.35;
+}
+
+.stat-block .stat-label {
+  font-weight: 700;
+  font-style: normal;
+}
+
+.stat-block .stat-line input,
+.stat-block .stat-trait input,
+.stat-block .stat-trait textarea,
+.stat-block .stat-score input {
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.stat-block .stat-line input {
+  width: min(100% - 8rem, 32rem);
+}
+
+.stat-block .stat-line input:focus,
+.stat-block .stat-trait input:focus,
+.stat-block .stat-trait textarea:focus,
+.stat-block .stat-score input:focus,
+.stat-block .stat-name:focus,
+.stat-block .stat-meta input:focus {
+  border-bottom-color: #7a1f1f;
+}
+
+.stat-block input::placeholder,
+.stat-block textarea::placeholder {
+  color: #9a7d5c;
+}
+
+.stat-scores {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.25rem;
+  margin: 0.35rem 0 0.15rem;
+  padding: 0.35rem 0;
+  border-block: 1px solid #7a1f1f;
+  text-align: center;
+}
+
+.stat-score span {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.stat-score input {
+  width: 100%;
+  font-size: 1.15rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.stat-score small {
+  display: block;
+  font-size: 0.85rem;
+}
+
+.stat-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0.85rem 0 0.3rem;
+  padding-bottom: 0.1rem;
+  border-bottom: 1px solid #7a1f1f;
+  color: #7a1f1f;
+  font-size: 1.05rem;
+  font-variant: small-caps;
+  letter-spacing: 0.06em;
+}
+
+.stat-trait {
+  margin: 0.45rem 0 0.65rem;
+}
+
+.stat-trait input {
+  width: calc(100% - 1.8rem);
+  font-weight: 700;
+  font-style: italic;
+}
+
+.stat-trait textarea {
+  display: block;
+  width: 100%;
+  margin-top: 0.15rem;
+  resize: vertical;
+  line-height: 1.35;
+}
+
+.stat-add,
+.stat-remove {
+  border: 0;
+  background: transparent;
+  color: #7a1f1f;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.stat-remove {
+  float: right;
+  line-height: 1.4;
+}
+
+.stat-source {
+  margin: 0.8rem 0 0;
+  color: #6d5842;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+}
+
+.stat-source input {
+  width: min(100%, 18rem);
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.stat-source input:focus {
+  border-bottom-color: #7a1f1f;
+}
+
 .rich-text {
   min-height: var(--editor-min, 140px);
   padding: 0.75rem 0.85rem 1rem;
@@ -116,7 +302,8 @@ input {
 
 @media (max-width: 900px) {
   .panel,
-  .panel.panel-wide {
+  .panel.panel-wide,
+  .panel:has(.encounter-frame) {
     position: absolute;
     inset: 0;
     z-index: 20;

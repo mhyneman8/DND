@@ -2,10 +2,11 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { extensionFor, validateImage } from "./images.ts"
 import { DataError, type CreateEntryInput, type CreateLinkInput, type CreateListItemInput, type CreateStoryItemInput, type Repository } from "./repository.ts"
 import { catalogSheetFromEntry, normalizeCatalogSheet } from "./catalog.ts"
+import { monsterSheetFromEntry, normalizeMonsterSheet } from "./monster.ts"
 import { npcSheetFromEntry, normalizeNpcSheet } from "./npc.ts"
 import { asPcEvents, asPcObjectives, asPcPeople, pcSheetFromEntry } from "./pc.ts"
 import { asDoc } from "./text.ts"
-import type { Campaign, CampaignPatch, CatalogSheet, CatalogSheetPatch, Entry, EntryLink, EntryPatch, ListItem, NpcSheet, NpcSheetPatch, PanelSectionId, PcSheet, PcSheetPatch, PlotSubsection, PlotSubsectionPatch, StoryItem, StoryItemPatch, StoryKind } from "./types.ts"
+import type { Campaign, CampaignPatch, CatalogSheet, CatalogSheetPatch, Entry, EntryLink, EntryPatch, ListItem, MonsterSheet, MonsterSheetPatch, NpcSheet, NpcSheetPatch, PanelSectionId, PcSheet, PcSheetPatch, PlotSubsection, PlotSubsectionPatch, StickyNote, StickyNotePatch, StoryItem, StoryItemPatch, StoryKind } from "./types.ts"
 
 const BUCKET = "campaign-media"
 
@@ -59,11 +60,15 @@ type StoryItemRow = {
   name: string
   session_date: string | null
   body: unknown
+  image_path: string | null
   resolved: boolean
   show_on_home: boolean
   created_at: string
   updated_at: string
 }
+
+const STORY_COLUMNS =
+  "id, campaign_id, subsection_id, kind, name, session_date, body, resolved, show_on_home, image_path, created_at, updated_at"
 
 function mapCampaign(row: CampaignRow): Campaign {
   return {
@@ -121,8 +126,29 @@ function mapStoryItem(row: StoryItemRow): StoryItem {
     name: row.name,
     sessionDate: row.session_date,
     body: asDoc(row.body),
+    imagePath: row.image_path,
     resolved: row.resolved,
     showOnHome: row.show_on_home,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+type StickyNoteRow = {
+  id: string
+  campaign_id: string
+  body: string
+  character_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+function mapStickyNote(row: StickyNoteRow): StickyNote {
+  return {
+    id: row.id,
+    campaignId: row.campaign_id,
+    body: row.body ?? "",
+    characterId: row.character_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -241,6 +267,129 @@ function catalogInsert(sheet: CatalogSheet) {
     effect: sheet.effect,
     notes: sheet.notes,
   }
+}
+
+const MONSTER_COLUMNS =
+  "entry_id, campaign_id, size, creature_type, alignment, armor_class, hit_points, speed, abilities, saving_throws, skills, damage_vulnerabilities, damage_resistances, damage_immunities, condition_immunities, senses, languages, challenge, traits, actions, bonus_actions, reactions, legendary_actions, notes, source, updated_at"
+
+type MonsterSheetRow = {
+  entry_id: string
+  campaign_id: string
+  size: string
+  creature_type: string
+  alignment: string
+  armor_class: string
+  hit_points: string
+  speed: string
+  abilities: unknown
+  saving_throws: string
+  skills: string
+  damage_vulnerabilities: string
+  damage_resistances: string
+  damage_immunities: string
+  condition_immunities: string
+  senses: string
+  languages: string
+  challenge: string
+  traits: unknown
+  actions: unknown
+  bonus_actions: unknown
+  reactions: unknown
+  legendary_actions: unknown
+  notes: unknown
+  source: string
+  updated_at: string
+}
+
+function mapMonsterSheet(row: MonsterSheetRow): MonsterSheet {
+  const sheet = normalizeMonsterSheet({
+    entryId: row.entry_id,
+    campaignId: row.campaign_id,
+    size: row.size,
+    creatureType: row.creature_type,
+    alignment: row.alignment,
+    armorClass: row.armor_class,
+    hitPoints: row.hit_points,
+    speed: row.speed,
+    abilities: row.abilities,
+    savingThrows: row.saving_throws,
+    skills: row.skills,
+    damageVulnerabilities: row.damage_vulnerabilities,
+    damageResistances: row.damage_resistances,
+    damageImmunities: row.damage_immunities,
+    conditionImmunities: row.condition_immunities,
+    senses: row.senses,
+    languages: row.languages,
+    challenge: row.challenge,
+    traits: row.traits,
+    actions: row.actions,
+    bonusActions: row.bonus_actions,
+    reactions: row.reactions,
+    legendaryActions: row.legendary_actions,
+    notes: row.notes,
+    source: row.source,
+    updatedAt: row.updated_at,
+  })
+  if (!sheet) throw new DataError("That stat block is unreadable.")
+  return sheet
+}
+
+function monsterInsert(sheet: MonsterSheet) {
+  return {
+    entry_id: sheet.entryId,
+    campaign_id: sheet.campaignId,
+    size: sheet.size,
+    creature_type: sheet.creatureType,
+    alignment: sheet.alignment,
+    armor_class: sheet.armorClass,
+    hit_points: sheet.hitPoints,
+    speed: sheet.speed,
+    abilities: sheet.abilities,
+    saving_throws: sheet.savingThrows,
+    skills: sheet.skills,
+    damage_vulnerabilities: sheet.damageVulnerabilities,
+    damage_resistances: sheet.damageResistances,
+    damage_immunities: sheet.damageImmunities,
+    condition_immunities: sheet.conditionImmunities,
+    senses: sheet.senses,
+    languages: sheet.languages,
+    challenge: sheet.challenge,
+    traits: sheet.traits,
+    actions: sheet.actions,
+    bonus_actions: sheet.bonusActions,
+    reactions: sheet.reactions,
+    legendary_actions: sheet.legendaryActions,
+    notes: sheet.notes,
+    source: sheet.source,
+  }
+}
+
+function monsterPatch(patch: MonsterSheetPatch) {
+  const row: Record<string, unknown> = {}
+  if (patch.size !== undefined) row.size = patch.size
+  if (patch.creatureType !== undefined) row.creature_type = patch.creatureType
+  if (patch.alignment !== undefined) row.alignment = patch.alignment
+  if (patch.armorClass !== undefined) row.armor_class = patch.armorClass
+  if (patch.hitPoints !== undefined) row.hit_points = patch.hitPoints
+  if (patch.speed !== undefined) row.speed = patch.speed
+  if (patch.abilities !== undefined) row.abilities = patch.abilities
+  if (patch.savingThrows !== undefined) row.saving_throws = patch.savingThrows
+  if (patch.skills !== undefined) row.skills = patch.skills
+  if (patch.damageVulnerabilities !== undefined) row.damage_vulnerabilities = patch.damageVulnerabilities
+  if (patch.damageResistances !== undefined) row.damage_resistances = patch.damageResistances
+  if (patch.damageImmunities !== undefined) row.damage_immunities = patch.damageImmunities
+  if (patch.conditionImmunities !== undefined) row.condition_immunities = patch.conditionImmunities
+  if (patch.senses !== undefined) row.senses = patch.senses
+  if (patch.languages !== undefined) row.languages = patch.languages
+  if (patch.challenge !== undefined) row.challenge = patch.challenge
+  if (patch.traits !== undefined) row.traits = patch.traits
+  if (patch.actions !== undefined) row.actions = patch.actions
+  if (patch.bonusActions !== undefined) row.bonus_actions = patch.bonusActions
+  if (patch.reactions !== undefined) row.reactions = patch.reactions
+  if (patch.legendaryActions !== undefined) row.legendary_actions = patch.legendaryActions
+  if (patch.notes !== undefined) row.notes = patch.notes
+  if (patch.source !== undefined) row.source = patch.source
+  return row
 }
 
 function mapLink(row: LinkRow): EntryLink {
@@ -472,14 +621,20 @@ export class SupabaseRepository implements Repository {
   }
 
   async deletePlotSubsection(id: string) {
+    const listed = await this.client.from("story_items").select("image_path").eq("subsection_id", id)
+    this.fail(listed.error)
+    const paths = ((listed.data ?? []) as { image_path: string | null }[])
+      .map((row) => row.image_path)
+      .filter((path): path is string => Boolean(path))
     const { error } = await this.client.from("plot_subsections").delete().eq("id", id)
     this.fail(error)
+    await Promise.all(paths.map((path) => this.deleteImage(path).catch(() => undefined)))
   }
 
   async listStoryItems(campaignId: string) {
     const { data, error } = await this.client
       .from("story_items")
-      .select("id, campaign_id, subsection_id, kind, name, session_date, body, resolved, show_on_home, created_at, updated_at")
+      .select(STORY_COLUMNS)
       .eq("campaign_id", campaignId)
       .order("created_at", { ascending: true })
     this.fail(error)
@@ -496,7 +651,7 @@ export class SupabaseRepository implements Repository {
         name: input.name.trim(),
         session_date: input.sessionDate,
       })
-      .select("id, campaign_id, subsection_id, kind, name, session_date, body, resolved, show_on_home, created_at, updated_at")
+      .select(STORY_COLUMNS)
       .single()
     this.fail(error)
     return mapStoryItem(data as StoryItemRow)
@@ -507,6 +662,7 @@ export class SupabaseRepository implements Repository {
     if (patch.name !== undefined) row.name = patch.name.trim()
     if (patch.sessionDate !== undefined) row.session_date = patch.sessionDate
     if (patch.body !== undefined) row.body = patch.body
+    if (patch.imagePath !== undefined) row.image_path = patch.imagePath
     if (patch.resolved !== undefined) row.resolved = patch.resolved
     if (patch.showOnHome !== undefined) row.show_on_home = patch.showOnHome
     const { error } = await this.client.from("story_items").update(row).eq("id", id)
@@ -514,8 +670,11 @@ export class SupabaseRepository implements Repository {
   }
 
   async deleteStoryItem(id: string) {
+    const existing = await this.client.from("story_items").select("image_path").eq("id", id).maybeSingle()
+    const path = (existing.data as { image_path: string | null } | null)?.image_path
     const { error } = await this.client.from("story_items").delete().eq("id", id)
     this.fail(error)
+    if (path) await this.deleteImage(path)
   }
 
   async listPcSheets(campaignId: string) {
@@ -814,6 +973,92 @@ export class SupabaseRepository implements Repository {
     this.fail(error)
     const touched = await this.client.from("entries").update({ updated_at: new Date().toISOString() }).eq("id", entryId)
     this.fail(touched.error)
+  }
+
+  async listMonsterSheets(campaignId: string) {
+    const listed = await this.client.from("monster_sheets").select(MONSTER_COLUMNS).eq("campaign_id", campaignId)
+    this.fail(listed.error)
+    const sheets = ((listed.data ?? []) as MonsterSheetRow[]).map(mapMonsterSheet)
+    const entries = await this.client.from("entries").select("id, campaign_id, body").eq("campaign_id", campaignId).eq("section", "monsters")
+    this.fail(entries.error)
+    const records = (entries.data ?? []) as { id: string; campaign_id: string; body: unknown }[]
+    const have = new Set(sheets.map((sheet) => sheet.entryId))
+    const missing = records.filter((entry) => !have.has(entry.id))
+    if (missing.length === 0) return sheets
+    const rows = missing.map((entry) =>
+      monsterInsert(monsterSheetFromEntry({ id: entry.id, campaignId: entry.campaign_id, body: asDoc(entry.body) }, new Date().toISOString())),
+    )
+    const inserted = await this.client.from("monster_sheets").insert(rows).select(MONSTER_COLUMNS)
+    if (inserted.error?.code === "23505") {
+      const again = await this.client.from("monster_sheets").select(MONSTER_COLUMNS).eq("campaign_id", campaignId)
+      this.fail(again.error)
+      return ((again.data ?? []) as MonsterSheetRow[]).map(mapMonsterSheet)
+    }
+    this.fail(inserted.error)
+    return [...sheets, ...((inserted.data ?? []) as MonsterSheetRow[]).map(mapMonsterSheet)]
+  }
+
+  async createMonsterSheet(entryId: string) {
+    const existing = await this.client.from("monster_sheets").select(MONSTER_COLUMNS).eq("entry_id", entryId).maybeSingle()
+    this.fail(existing.error)
+    if (existing.data) return mapMonsterSheet(existing.data as MonsterSheetRow)
+
+    const entry = await this.client.from("entries").select("id, campaign_id, body").eq("id", entryId).maybeSingle()
+    this.fail(entry.error)
+    const row = entry.data as { id: string; campaign_id: string; body: unknown } | null
+    if (!row) throw new DataError("That creature is gone.")
+    const sheet = monsterSheetFromEntry({ id: row.id, campaignId: row.campaign_id, body: asDoc(row.body) }, new Date().toISOString())
+    const inserted = await this.client.from("monster_sheets").insert(monsterInsert(sheet)).select(MONSTER_COLUMNS).single()
+    if (inserted.error?.code === "23505") {
+      const again = await this.client.from("monster_sheets").select(MONSTER_COLUMNS).eq("entry_id", entryId).single()
+      this.fail(again.error)
+      return mapMonsterSheet(again.data as MonsterSheetRow)
+    }
+    this.fail(inserted.error)
+    return mapMonsterSheet(inserted.data as MonsterSheetRow)
+  }
+
+  async updateMonsterSheet(entryId: string, patch: MonsterSheetPatch) {
+    const row = monsterPatch(patch)
+    if (Object.keys(row).length === 0) return
+    const { error } = await this.client.from("monster_sheets").update(row).eq("entry_id", entryId)
+    this.fail(error)
+    const touched = await this.client.from("entries").update({ updated_at: new Date().toISOString() }).eq("id", entryId)
+    this.fail(touched.error)
+  }
+
+  async listStickyNotes(campaignId: string) {
+    const { data, error } = await this.client
+      .from("sticky_notes")
+      .select("id, campaign_id, body, character_id, created_at, updated_at")
+      .eq("campaign_id", campaignId)
+      .order("created_at", { ascending: false })
+    this.fail(error)
+    return ((data ?? []) as StickyNoteRow[]).map(mapStickyNote)
+  }
+
+  async createStickyNote(campaignId: string) {
+    const { data, error } = await this.client
+      .from("sticky_notes")
+      .insert({ campaign_id: campaignId, body: "" })
+      .select("id, campaign_id, body, character_id, created_at, updated_at")
+      .single()
+    this.fail(error)
+    return mapStickyNote(data as StickyNoteRow)
+  }
+
+  async updateStickyNote(id: string, patch: StickyNotePatch) {
+    const row: Record<string, unknown> = {}
+    if (patch.body !== undefined) row.body = patch.body
+    if (patch.characterId !== undefined) row.character_id = patch.characterId
+    if (Object.keys(row).length === 0) return
+    const { error } = await this.client.from("sticky_notes").update(row).eq("id", id)
+    this.fail(error)
+  }
+
+  async deleteStickyNote(id: string) {
+    const { error } = await this.client.from("sticky_notes").delete().eq("id", id)
+    this.fail(error)
   }
 
   async uploadImage(campaignId: string, file: File) {

@@ -5,6 +5,7 @@ import type { PlotSubsection, RichDoc, StoryItem } from "../lib/types.ts"
 import { useAutosave } from "../lib/useAutosave.ts"
 import { useApp } from "../state/AppState.tsx"
 import { ConfirmDialog } from "./ConfirmDialog.tsx"
+import { ImageUpload } from "./ImageUpload.tsx"
 import { RichTextField } from "./RichTextField.tsx"
 import { fieldClass, primaryClass } from "./styles.ts"
 
@@ -298,7 +299,7 @@ function ArcRow({
 }
 
 function StoryEditor({ item }: { item: StoryItem }) {
-  const { updateStoryItem, deleteStoryItem } = useApp()
+  const { updateStoryItem, deleteStoryItem, uploadImage, deleteStoredImage } = useApp()
   const [name, setName] = useState(item.name)
   const [confirming, setConfirming] = useState(false)
   const queue = useAutosave(400)
@@ -364,6 +365,21 @@ function StoryEditor({ item }: { item: StoryItem }) {
           </button>
         </div>
       )}
+      <ImageUpload
+        path={item.imagePath}
+        alt={name || "Story image"}
+        onUpload={async (file) => {
+          const path = await uploadImage(file)
+          const previous = item.imagePath
+          await updateStoryItem(item.id, { imagePath: path })
+          if (previous && previous !== path) await deleteStoredImage(previous)
+        }}
+        onRemove={async () => {
+          const previous = item.imagePath
+          await updateStoryItem(item.id, { imagePath: null })
+          if (previous) await deleteStoredImage(previous)
+        }}
+      />
       <RichTextField
         initialContent={item.body}
         ariaLabel={item.kind === "session" ? "Session notes" : "Arc notes"}

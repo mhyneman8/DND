@@ -11,10 +11,14 @@ import type {
   RichDoc,
   CatalogSheet,
   CatalogSheetPatch,
+  MonsterSheet,
+  MonsterSheetPatch,
   NpcSheet,
   NpcSheetPatch,
   PcSheet,
   PcSheetPatch,
+  StickyNote,
+  StickyNotePatch,
   StoryItem,
   StoryItemPatch,
   StoryKind,
@@ -98,6 +102,13 @@ export interface Repository {
   listCatalogSheets(campaignId: string): Promise<CatalogSheet[]>
   createCatalogSheet(entryId: string): Promise<CatalogSheet>
   updateCatalogSheet(entryId: string, patch: CatalogSheetPatch): Promise<void>
+  listMonsterSheets(campaignId: string): Promise<MonsterSheet[]>
+  createMonsterSheet(entryId: string): Promise<MonsterSheet>
+  updateMonsterSheet(entryId: string, patch: MonsterSheetPatch): Promise<void>
+  listStickyNotes(campaignId: string): Promise<StickyNote[]>
+  createStickyNote(campaignId: string): Promise<StickyNote>
+  updateStickyNote(id: string, patch: StickyNotePatch): Promise<void>
+  deleteStickyNote(id: string): Promise<void>
   uploadImage(campaignId: string, file: File): Promise<string>
   imageUrl(path: string): Promise<string | null>
   deleteImage(path: string): Promise<void>

@@ -1,6 +1,8 @@
-import { ImagePlus, X } from "lucide-react"
-import { useEffect, useState } from "react"
+import { ClipboardPaste, ImagePlus, X } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { imageFileFromClipboard, imageFileFromTransfer } from "../lib/images.ts"
 import { messageOf } from "../lib/text.ts"
+import { usePasteImage } from "../lib/usePasteImage.ts"
 import { useApp } from "../state/AppState.tsx"
 import { ConfirmDialog } from "./ConfirmDialog.tsx"
 
@@ -9,11 +11,13 @@ export function ImageUpload({
   alt,
   onUpload,
   onRemove,
+  tall = false,
 }: {
   path: string | null
   alt: string
   onUpload: (file: File) => Promise<void>
   onRemove: () => Promise<void>
+  tall?: boolean
 }) {
   const { imageUrl } = useApp()
   const [resolved, setResolved] = useState<{ path: string; url: string | null } | null>(null)
@@ -21,6 +25,7 @@ export function ImageUpload({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
   const url = path && resolved?.path === path ? resolved.url : null
 
   useEffect(() => {
@@ -35,7 +40,7 @@ export function ImageUpload({
     }
   }, [imageUrl, path])
 
-  async function take(file: File | undefined) {
+  async function take(file: File | null | undefined) {
     if (!file || busy) return
     setBusy(true)
     setError(null)
@@ -48,10 +53,40 @@ export function ImageUpload({
     }
   }
 
+  usePasteImage((file) => {
+    void take(file)
+  })
+
+  async function pasteClipboard() {
+    setError(null)
+    try {
+      const file = await imageFileFromClipboard()
+      if (!file) {
+        setError("Copy a picture or screenshot first.")
+        return
+      }
+      await take(file)
+    } catch (caught) {
+      setError(messageOf(caught))
+    }
+  }
+
   return (
-    <div>
+    <div
+      className={tall ? "flex h-full min-h-72 flex-col" : undefined}
+      onDragOver={(event) => {
+        event.preventDefault()
+        setDragging(true)
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(event) => {
+        event.preventDefault()
+        setDragging(false)
+        void take(imageFileFromTransfer(event.dataTransfer))
+      }}
+    >
       {url ? (
-        <div className="relative">
+        <div className={`relative ${dragging ? "rounded-lg ring-1 ring-[var(--campaign)]" : ""}`}>
           <img src={url} alt={alt} className="max-h-48 w-full rounded-lg border border-line object-contain" />
           <button
             type="button"
@@ -64,21 +99,12 @@ export function ImageUpload({
         </div>
       ) : (
         <label
-          className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted ${dragging ? "border-[var(--campaign)] bg-white/5" : "border-line"}`}
-          onDragOver={(event) => {
-            event.preventDefault()
-            setDragging(true)
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(event) => {
-            event.preventDefault()
-            setDragging(false)
-            void take(event.dataTransfer.files[0])
-          }}
+          className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted ${tall ? "min-h-72 flex-1 justify-center" : ""} ${dragging ? "border-[var(--campaign)] bg-white/5" : "border-line"}`}
         >
           <ImagePlus size={18} />
-          <span>{busy ? "Uploading…" : "Add an image"}</span>
+          <span>{busy ? "Uploading…" : "Add a picture or screenshot"}</span>
           <input
+            ref={fileRef}
             type="file"
             accept="image/png,image/jpeg,image/webp,image/gif"
             className="sr-only"
@@ -88,6 +114,29 @@ export function ImageUpload({
             }}
           />
         </label>
+      )}
+      <div className="mt-2 flex flex-wrap gap-3">
+        {url && (
+          <button type="button" className="text-sm text-muted hover:text-cream" disabled={busy} onClick={() => fileRef.current?.click()}>
+            Replace picture
+          </button>
+        )}
+        <button type="button" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-cream" disabled={busy} onClick={() => void pasteClipboard()}>
+          <ClipboardPaste size={14} />
+          Paste screenshot
+        </button>
+      </div>
+      {url && (
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          className="sr-only"
+          onChange={(event) => {
+            void take(event.target.files?.[0])
+            event.target.value = ""
+          }}
+        />
       )}
       {error && <p className="mt-2 text-sm text-danger">{error}</p>}
       {confirming && (
