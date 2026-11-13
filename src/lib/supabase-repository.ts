@@ -1,8 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { extensionFor, validateImage } from "./images.ts"
 import { DataError, type CreateEntryInput, type CreateLinkInput, type CreateListItemInput, type CreateStoryItemInput, type Repository } from "./repository.ts"
+import { asPcEvents, asPcObjectives, asPcPeople, pcSheetFromEntry } from "./pc.ts"
 import { asDoc } from "./text.ts"
-import type { Campaign, CampaignPatch, Entry, EntryLink, EntryPatch, ListItem, PanelSectionId, PlotSubsection, PlotSubsectionPatch, StoryItem, StoryItemPatch, StoryKind } from "./types.ts"
+import type { Campaign, CampaignPatch, Entry, EntryLink, EntryPatch, ListItem, PanelSectionId, PcSheet, PcSheetPatch, PlotSubsection, PlotSubsectionPatch, StoryItem, StoryItemPatch, StoryKind } from "./types.ts"
 
 const BUCKET = "campaign-media"
 
@@ -121,6 +122,47 @@ function mapStoryItem(row: StoryItemRow): StoryItem {
     resolved: row.resolved,
     showOnHome: row.show_on_home,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+const PC_COLUMNS =
+  "entry_id, campaign_id, class_name, subclass, sheet_url, bio, subclass_notes, people, events, objectives, updated_at"
+
+type PcSheetRow = {
+  entry_id: string
+  campaign_id: string
+  class_name: string
+  subclass: string
+  sheet_url: string
+  bio: unknown
+  subclass_notes: unknown
+  people: unknown
+  events: unknown
+  objectives: unknown
+  updated_at: string
+}
+
+type AllianceRow = {
+  id: string
+  entry_id: string
+  list_key: string
+  label: string
+  created_at: string
+}
+
+function mapPcSheet(row: PcSheetRow): PcSheet {
+  return {
+    entryId: row.entry_id,
+    campaignId: row.campaign_id,
+    className: row.class_name ?? "",
+    subclass: row.subclass ?? "",
+    sheetUrl: row.sheet_url ?? "",
+    bio: asDoc(row.bio),
+    subclassNotes: asDoc(row.subclass_notes),
+    people: asPcPeople(row.people),
+    events: asPcEvents(row.events),
+    objectives: asPcObjectives(row.objectives),
     updatedAt: row.updated_at,
   }
 }
@@ -398,6 +440,124 @@ export class SupabaseRepository implements Repository {
   async deleteStoryItem(id: string) {
     const { error } = await this.client.from("story_items").delete().eq("id", id)
     this.fail(error)
+  }
+
+  async listPcSheets(campaignId: string) {
+    const listed = await this.client.from("pc_sheets").select(PC_COLUMNS).eq("campaign_id", campaignId)
+    this.fail(listed.error)
+    const sheets = ((listed.data ?? []) as PcSheetRow[]).map(mapPcSheet)
+    const entries = await this.client
+      .from("entries")
+      .select("id, campaign_id, body")
+      .eq("campaign_id", campaignId)
+      .eq("section", "pcs")
+    this.fail(entries.error)
+    const characters = (entries.data ?? []) as { id: string; campaign_id: string; body: unknown }[]
+    const have = new Set(sheets.map((sheet) => sheet.entryId))
+    const missing = characters.filter((entry) => !have.has(entry.id))
+    if (missing.length === 0) return sheets
+
+    const alliances = await this.client
+      .from("list_items")
+      .select("id, entry_id, list_key, label, created_at")
+      .in(
+        "entry_id",
+        missing.map((entry) => entry.id),
+      )
+    this.fail(alliances.error)
+    const rows = missing.map((entry) => {
+      const people = ((alliances.data ?? []) as AllianceRow[])
+        .filter((item) => item.entry_id === entry.id && item.list_key === "alliances")
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .map((item) => ({ id: item.id, label: item.label }))
+      const sheet = pcSheetFromEntry(
+        { id: entry.id, campaignId: entry.campaign_id, body: asDoc(entry.body) },
+        people,
+        new Date().toISOString(),
+      )
+      return {
+        entry_id: sheet.entryId,
+        campaign_id: sheet.campaignId,
+        class_name: sheet.className,
+        subclass: sheet.subclass,
+        sheet_url: sheet.sheetUrl,
+        bio: sheet.bio,
+        subclass_notes: sheet.subclassNotes,
+        people: sheet.people,
+        events: sheet.events,
+        objectives: sheet.objectives,
+      }
+    })
+    const inserted = await this.client.from("pc_sheets").insert(rows).select(PC_COLUMNS)
+    if (inserted.error?.code === "23505") {
+      const again = await this.client.from("pc_sheets").select(PC_COLUMNS).eq("campaign_id", campaignId)
+      this.fail(again.error)
+      return ((again.data ?? []) as PcSheetRow[]).map(mapPcSheet)
+    }
+    this.fail(inserted.error)
+    return [...sheets, ...((inserted.data ?? []) as PcSheetRow[]).map(mapPcSheet)]
+  }
+
+  async createPcSheet(entryId: string) {
+    const existing = await this.client.from("pc_sheets").select(PC_COLUMNS).eq("entry_id", entryId).maybeSingle()
+    this.fail(existing.error)
+    if (existing.data) return mapPcSheet(existing.data as PcSheetRow)
+
+    const entry = await this.client.from("entries").select("id, campaign_id, body").eq("id", entryId).maybeSingle()
+    this.fail(entry.error)
+    const row = entry.data as { id: string; campaign_id: string; body: unknown } | null
+    if (!row) throw new DataError("That character is gone.")
+
+    const alliances = await this.client
+      .from("list_items")
+      .select("id, entry_id, list_key, label, created_at")
+      .eq("entry_id", entryId)
+    this.fail(alliances.error)
+    const people = ((alliances.data ?? []) as AllianceRow[])
+      .filter((item) => item.list_key === "alliances")
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .map((item) => ({ id: item.id, label: item.label }))
+    const sheet = pcSheetFromEntry({ id: row.id, campaignId: row.campaign_id, body: asDoc(row.body) }, people, new Date().toISOString())
+    const inserted = await this.client
+      .from("pc_sheets")
+      .insert({
+        entry_id: sheet.entryId,
+        campaign_id: sheet.campaignId,
+        class_name: sheet.className,
+        subclass: sheet.subclass,
+        sheet_url: sheet.sheetUrl,
+        bio: sheet.bio,
+        subclass_notes: sheet.subclassNotes,
+        people: sheet.people,
+        events: sheet.events,
+        objectives: sheet.objectives,
+      })
+      .select(PC_COLUMNS)
+      .single()
+    if (inserted.error?.code === "23505") {
+      const again = await this.client.from("pc_sheets").select(PC_COLUMNS).eq("entry_id", entryId).single()
+      this.fail(again.error)
+      return mapPcSheet(again.data as PcSheetRow)
+    }
+    this.fail(inserted.error)
+    return mapPcSheet(inserted.data as PcSheetRow)
+  }
+
+  async updatePcSheet(entryId: string, patch: PcSheetPatch) {
+    const row: Record<string, unknown> = {}
+    if (patch.className !== undefined) row.class_name = patch.className
+    if (patch.subclass !== undefined) row.subclass = patch.subclass
+    if (patch.sheetUrl !== undefined) row.sheet_url = patch.sheetUrl
+    if (patch.bio !== undefined) row.bio = patch.bio
+    if (patch.subclassNotes !== undefined) row.subclass_notes = patch.subclassNotes
+    if (patch.people !== undefined) row.people = patch.people
+    if (patch.events !== undefined) row.events = patch.events
+    if (patch.objectives !== undefined) row.objectives = patch.objectives
+    if (Object.keys(row).length === 0) return
+    const { error } = await this.client.from("pc_sheets").update(row).eq("entry_id", entryId)
+    this.fail(error)
+    const touched = await this.client.from("entries").update({ updated_at: new Date().toISOString() }).eq("id", entryId)
+    this.fail(touched.error)
   }
 
   async uploadImage(campaignId: string, file: File) {

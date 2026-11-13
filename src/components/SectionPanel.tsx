@@ -4,6 +4,7 @@ import { sectionById } from "../lib/sections.ts"
 import { useApp } from "../state/AppState.tsx"
 import { EntryEditor } from "./EntryEditor.tsx"
 import { EntryList } from "./EntryList.tsx"
+import { PlayerCharacters } from "./PlayerCharacters.tsx"
 import { StoryBeats } from "./StoryBeats.tsx"
 import { iconButtonClass } from "./styles.ts"
 
@@ -32,8 +33,10 @@ export function SectionPanel() {
   const storyOpen =
     activeSection === "story-beats" && storyItems.some((item) => item.id === activeEntryId && item.campaignId === campaign?.id)
 
+  const sheetOpen = activeSection === "pcs" && Boolean(entry)
+
   return (
-    <section className="panel" aria-label={section.label}>
+    <section className={sheetOpen ? "panel panel-wide" : "panel"} aria-label={section.label}>
       <header className="flex items-center gap-1 border-b border-line px-2 py-2">
         {entry || storyOpen ? (
           <button type="button" className={iconButtonClass} aria-label={`Back to ${section.label}`} onClick={() => selectEntry(null)}>
@@ -52,6 +55,8 @@ export function SectionPanel() {
           <p className="text-sm text-muted">Choose a campaign to start writing.</p>
         ) : activeSection === "story-beats" ? (
           <StoryBeats />
+        ) : activeSection === "pcs" ? (
+          <PlayerCharacters />
         ) : entry ? (
           <EntryEditor entry={entry} />
         ) : (

@@ -2,8 +2,9 @@ import { idbDelete, idbGet, idbSet } from "./idb.ts"
 import { extensionFor, readDataUrl, validateImage } from "./images.ts"
 import { now, uid } from "./ids.ts"
 import { DataError, type CreateEntryInput, type CreateLinkInput, type CreateListItemInput, type CreateStoryItemInput, type Repository, type SignUpResult } from "./repository.ts"
+import { normalizePcSheet, pcSheetFromEntry } from "./pc.ts"
 import { asDoc, emptyDoc } from "./text.ts"
-import type { Campaign, CampaignPatch, Entry, EntryLink, EntryPatch, ListItem, PlotSubsection, PlotSubsectionPatch, StoryItem, StoryItemPatch } from "./types.ts"
+import type { Campaign, CampaignPatch, Entry, EntryLink, EntryPatch, ListItem, PcPerson, PcSheet, PcSheetPatch, PlotSubsection, PlotSubsectionPatch, StoryItem, StoryItemPatch } from "./types.ts"
 
 const STORAGE_KEY = "dm-table:v1"
 
@@ -16,10 +17,18 @@ type LocalDb = {
   links: EntryLink[]
   plotSubsections: PlotSubsection[]
   storyItems: StoryItem[]
+  pcSheets: PcSheet[]
+}
+
+function alliancePeople(items: ListItem[], entryId: string): PcPerson[] {
+  return items
+    .filter((item) => item.entryId === entryId && item.listKey === "alliances")
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .map((item) => ({ id: item.id, label: item.label }))
 }
 
 function emptyDb(): LocalDb {
-  return { campaigns: [], entries: [], listItems: [], links: [], plotSubsections: [], storyItems: [] }
+  return { campaigns: [], entries: [], listItems: [], links: [], plotSubsections: [], storyItems: [], pcSheets: [] }
 }
 
 function adoptLegacyStoryBeats(db: LocalDb) {
@@ -89,6 +98,10 @@ function loadDb(): { db: LocalDb; migrated: boolean } {
           resolved: item.resolved ?? false,
           showOnHome: item.showOnHome ?? false,
         })),
+        pcSheets: (parsed.pcSheets ?? []).flatMap((sheet) => {
+          const normalized = normalizePcSheet(sheet)
+          return normalized ? [normalized] : []
+        }),
       },
     }
   } catch {
@@ -169,6 +182,7 @@ export class LocalRepository implements Repository {
     this.db.links = this.db.links.filter((link) => link.campaignId !== id)
     this.db.plotSubsections = this.db.plotSubsections.filter((item) => item.campaignId !== id)
     this.db.storyItems = this.db.storyItems.filter((item) => item.campaignId !== id)
+    this.db.pcSheets = this.db.pcSheets.filter((item) => item.campaignId !== id)
     this.commit()
     await Promise.all(paths.map((path) => idbDelete(path).catch(() => undefined)))
   }
@@ -217,6 +231,7 @@ export class LocalRepository implements Repository {
       item.linkedEntryId === id ? { ...item, linkedEntryId: null } : item,
     )
     this.db.links = this.db.links.filter((link) => link.sourceEntryId !== id && link.targetEntryId !== id)
+    this.db.pcSheets = this.db.pcSheets.filter((sheet) => sheet.entryId !== id)
     this.commit()
     if (entry?.imagePath) await idbDelete(entry.imagePath).catch(() => undefined)
   }
@@ -364,6 +379,54 @@ export class LocalRepository implements Repository {
 
   async deleteStoryItem(id: string) {
     this.db.storyItems = this.db.storyItems.filter((item) => item.id !== id)
+    this.commit()
+  }
+
+  async listPcSheets(campaignId: string) {
+    let changed = false
+    const characters = this.db.entries.filter((entry) => entry.campaignId === campaignId && entry.section === "pcs")
+    for (const entry of characters) {
+      if (this.db.pcSheets.some((sheet) => sheet.entryId === entry.id)) continue
+      this.db.pcSheets.push(pcSheetFromEntry(entry, alliancePeople(this.db.listItems, entry.id), entry.updatedAt))
+      changed = true
+    }
+    if (changed) this.commit()
+    return this.db.pcSheets
+      .filter((sheet) => sheet.campaignId === campaignId)
+      .flatMap((sheet) => {
+        const normalized = normalizePcSheet(sheet)
+        return normalized ? [normalized] : []
+      })
+  }
+
+  async createPcSheet(entryId: string) {
+    const existing = this.db.pcSheets.find((sheet) => sheet.entryId === entryId)
+    if (existing) {
+      const normalized = normalizePcSheet(existing)
+      if (normalized) return normalized
+    }
+    const entry = this.db.entries.find((item) => item.id === entryId)
+    if (!entry) throw new DataError("That character is gone.")
+    const sheet = pcSheetFromEntry(entry, alliancePeople(this.db.listItems, entry.id), now())
+    this.db.pcSheets.push(sheet)
+    this.commit()
+    return normalizePcSheet(sheet) ?? sheet
+  }
+
+  async updatePcSheet(entryId: string, patch: PcSheetPatch) {
+    const sheet = this.db.pcSheets.find((item) => item.entryId === entryId)
+    if (!sheet) throw new DataError("That character sheet is gone.")
+    if (patch.className !== undefined) sheet.className = patch.className
+    if (patch.subclass !== undefined) sheet.subclass = patch.subclass
+    if (patch.sheetUrl !== undefined) sheet.sheetUrl = patch.sheetUrl
+    if (patch.bio !== undefined) sheet.bio = patch.bio
+    if (patch.subclassNotes !== undefined) sheet.subclassNotes = patch.subclassNotes
+    if (patch.people !== undefined) sheet.people = patch.people.map((person) => ({ ...person }))
+    if (patch.events !== undefined) sheet.events = patch.events.map((event) => ({ ...event }))
+    if (patch.objectives !== undefined) sheet.objectives = patch.objectives.map((item) => ({ ...item }))
+    sheet.updatedAt = now()
+    const entry = this.db.entries.find((item) => item.id === entryId)
+    if (entry) entry.updatedAt = sheet.updatedAt
     this.commit()
   }
 

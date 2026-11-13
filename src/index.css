@@ -69,6 +69,11 @@ input {
   background: color-mix(in srgb, var(--color-panel) 94%, black);
 }
 
+.panel.panel-wide {
+  width: min(48rem, 70%);
+  min-width: 420px;
+}
+
 .rich-text {
   min-height: var(--editor-min, 140px);
   padding: 0.75rem 0.85rem 1rem;
@@ -110,7 +115,8 @@ input {
 }
 
 @media (max-width: 900px) {
-  .panel {
+  .panel,
+  .panel.panel-wide {
     position: absolute;
     inset: 0;
     z-index: 20;

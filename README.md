@@ -31,4 +31,6 @@ Home fills the workspace. Story Beats, PCs, NPCs, Monsters, Afflictions, Locatio
 
 Story Beats holds renameable subsections, each with a description. Inside a subsection you can log a session for a day and keep pending arcs. Mark an arc resolved, or flag it with Show on Home so it appears in the session-prep list.
 
+Each player character opens as one sheet. It has a background, class and subclass with a link that opens Roll20 or another site in a new tab, and notes on how the subclass is developing. Alliances are added with Enter, then reordered or removed. Recent events carry a session tag. Checking a personal objective files that objective under recent events.
+
 Other sections keep entries in alphabetical order inside each subsection. Notes use bold, italic, underline, and five highlight colors. Each entry can hold an image, a named list such as alliances, and links to other entries in the campaign.

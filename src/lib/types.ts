@@ -84,3 +84,38 @@ export type StoryItem = {
 }
 
 export type StoryItemPatch = Partial<Pick<StoryItem, "name" | "sessionDate" | "body" | "resolved" | "showOnHome">>
+
+export type PcPerson = {
+  id: string
+  label: string
+}
+
+export type PcEvent = {
+  id: string
+  sessionTag: string
+  text: string
+  createdAt: string
+}
+
+export type PcObjective = {
+  id: string
+  label: string
+}
+
+export type PcSheet = {
+  entryId: string
+  campaignId: string
+  className: string
+  subclass: string
+  sheetUrl: string
+  bio: RichDoc
+  subclassNotes: RichDoc
+  people: PcPerson[]
+  events: PcEvent[]
+  objectives: PcObjective[]
+  updatedAt: string
+}
+
+export type PcSheetPatch = Partial<
+  Pick<PcSheet, "className" | "subclass" | "sheetUrl" | "bio" | "subclassNotes" | "people" | "events" | "objectives">
+>

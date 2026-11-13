@@ -9,6 +9,8 @@ import type {
   PlotSubsection,
   PlotSubsectionPatch,
   RichDoc,
+  PcSheet,
+  PcSheetPatch,
   StoryItem,
   StoryItemPatch,
   StoryKind,
@@ -83,6 +85,9 @@ export interface Repository {
   createStoryItem(input: CreateStoryItemInput): Promise<StoryItem>
   updateStoryItem(id: string, patch: StoryItemPatch): Promise<void>
   deleteStoryItem(id: string): Promise<void>
+  listPcSheets(campaignId: string): Promise<PcSheet[]>
+  createPcSheet(entryId: string): Promise<PcSheet>
+  updatePcSheet(entryId: string, patch: PcSheetPatch): Promise<void>
   uploadImage(campaignId: string, file: File): Promise<string>
   imageUrl(path: string): Promise<string | null>
   deleteImage(path: string): Promise<void>

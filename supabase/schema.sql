@@ -93,6 +93,24 @@ create table if not exists public.story_items (
 create index if not exists plot_subsections_campaign_idx on public.plot_subsections (campaign_id);
 create index if not exists story_items_campaign_idx on public.story_items (campaign_id, kind);
 
+create table if not exists public.pc_sheets (
+  entry_id uuid primary key references public.entries (id) on delete cascade,
+  campaign_id uuid not null references public.campaigns (id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  class_name text not null default '',
+  subclass text not null default '',
+  sheet_url text not null default '',
+  bio jsonb not null default '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb,
+  subclass_notes jsonb not null default '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb,
+  people jsonb not null default '[]'::jsonb,
+  events jsonb not null default '[]'::jsonb,
+  objectives jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists pc_sheets_campaign_idx on public.pc_sheets (campaign_id);
+
 drop trigger if exists campaigns_updated_at on public.campaigns;
 create trigger campaigns_updated_at
 before update on public.campaigns
@@ -113,12 +131,18 @@ create trigger story_items_updated_at
 before update on public.story_items
 for each row execute function public.set_updated_at();
 
+drop trigger if exists pc_sheets_updated_at on public.pc_sheets;
+create trigger pc_sheets_updated_at
+before update on public.pc_sheets
+for each row execute function public.set_updated_at();
+
 alter table public.campaigns enable row level security;
 alter table public.entries enable row level security;
 alter table public.list_items enable row level security;
 alter table public.links enable row level security;
 alter table public.plot_subsections enable row level security;
 alter table public.story_items enable row level security;
+alter table public.pc_sheets enable row level security;
 
 drop policy if exists "campaigns_all" on public.campaigns;
 create policy "campaigns_all" on public.campaigns
@@ -156,11 +180,17 @@ for all to authenticated
 using (user_id = auth.uid())
 with check (user_id = auth.uid());
 
+drop policy if exists "pc_sheets_all" on public.pc_sheets;
+create policy "pc_sheets_all" on public.pc_sheets
+for all to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
 -- Earlier drafts stored campaigns under a worlds table. Drop that layer if it is still there.
 alter table public.campaigns drop column if exists world_id;
 drop table if exists public.worlds;
 
-grant select, insert, update, delete on public.campaigns, public.entries, public.list_items, public.links, public.plot_subsections, public.story_items to authenticated;
+grant select, insert, update, delete on public.campaigns, public.entries, public.list_items, public.links, public.plot_subsections, public.story_items, public.pc_sheets to authenticated;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
