@@ -1,9 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { extensionFor, validateImage } from "./images.ts"
 import { DataError, type CreateEntryInput, type CreateLinkInput, type CreateListItemInput, type CreateStoryItemInput, type Repository } from "./repository.ts"
+import { npcSheetFromEntry, normalizeNpcSheet } from "./npc.ts"
 import { asPcEvents, asPcObjectives, asPcPeople, pcSheetFromEntry } from "./pc.ts"
 import { asDoc } from "./text.ts"
-import type { Campaign, CampaignPatch, Entry, EntryLink, EntryPatch, ListItem, PanelSectionId, PcSheet, PcSheetPatch, PlotSubsection, PlotSubsectionPatch, StoryItem, StoryItemPatch, StoryKind } from "./types.ts"
+import type { Campaign, CampaignPatch, Entry, EntryLink, EntryPatch, ListItem, NpcSheet, NpcSheetPatch, PanelSectionId, PcSheet, PcSheetPatch, PlotSubsection, PlotSubsectionPatch, StoryItem, StoryItemPatch, StoryKind } from "./types.ts"
 
 const BUCKET = "campaign-media"
 
@@ -165,6 +166,37 @@ function mapPcSheet(row: PcSheetRow): PcSheet {
     objectives: asPcObjectives(row.objectives),
     updatedAt: row.updated_at,
   }
+}
+
+const NPC_COLUMNS =
+  "entry_id, campaign_id, description, motivations, affinity, hostile_at, friendly_at, people, updated_at"
+
+type NpcSheetRow = {
+  entry_id: string
+  campaign_id: string
+  description: unknown
+  motivations: unknown
+  affinity: number
+  hostile_at: number
+  friendly_at: number
+  people: unknown
+  updated_at: string
+}
+
+function mapNpcSheet(row: NpcSheetRow): NpcSheet {
+  const sheet = normalizeNpcSheet({
+    entryId: row.entry_id,
+    campaignId: row.campaign_id,
+    description: row.description,
+    motivations: row.motivations,
+    affinity: row.affinity,
+    hostileAt: row.hostile_at,
+    friendlyAt: row.friendly_at,
+    people: row.people,
+    updatedAt: row.updated_at,
+  })
+  if (!sheet) throw new DataError("That character sheet is unreadable.")
+  return sheet
 }
 
 function mapLink(row: LinkRow): EntryLink {
@@ -555,6 +587,118 @@ export class SupabaseRepository implements Repository {
     if (patch.objectives !== undefined) row.objectives = patch.objectives
     if (Object.keys(row).length === 0) return
     const { error } = await this.client.from("pc_sheets").update(row).eq("entry_id", entryId)
+    this.fail(error)
+    const touched = await this.client.from("entries").update({ updated_at: new Date().toISOString() }).eq("id", entryId)
+    this.fail(touched.error)
+  }
+
+  async listNpcSheets(campaignId: string) {
+    const listed = await this.client.from("npc_sheets").select(NPC_COLUMNS).eq("campaign_id", campaignId)
+    this.fail(listed.error)
+    const sheets = ((listed.data ?? []) as NpcSheetRow[]).map(mapNpcSheet)
+    const entries = await this.client
+      .from("entries")
+      .select("id, campaign_id, body")
+      .eq("campaign_id", campaignId)
+      .eq("section", "npcs")
+    this.fail(entries.error)
+    const characters = (entries.data ?? []) as { id: string; campaign_id: string; body: unknown }[]
+    const have = new Set(sheets.map((sheet) => sheet.entryId))
+    const missing = characters.filter((entry) => !have.has(entry.id))
+    if (missing.length === 0) return sheets
+
+    const alliances = await this.client
+      .from("list_items")
+      .select("id, entry_id, list_key, label, created_at")
+      .in(
+        "entry_id",
+        missing.map((entry) => entry.id),
+      )
+    this.fail(alliances.error)
+    const rows = missing.map((entry) => {
+      const people = ((alliances.data ?? []) as AllianceRow[])
+        .filter((item) => item.entry_id === entry.id && item.list_key === "alliances")
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .map((item) => ({ id: item.id, label: item.label }))
+      const sheet = npcSheetFromEntry(
+        { id: entry.id, campaignId: entry.campaign_id, body: asDoc(entry.body) },
+        people,
+        new Date().toISOString(),
+      )
+      return {
+        entry_id: sheet.entryId,
+        campaign_id: sheet.campaignId,
+        description: sheet.description,
+        motivations: sheet.motivations,
+        affinity: sheet.affinity,
+        hostile_at: sheet.hostileAt,
+        friendly_at: sheet.friendlyAt,
+        people: sheet.people,
+      }
+    })
+    const inserted = await this.client.from("npc_sheets").insert(rows).select(NPC_COLUMNS)
+    if (inserted.error?.code === "23505") {
+      const again = await this.client.from("npc_sheets").select(NPC_COLUMNS).eq("campaign_id", campaignId)
+      this.fail(again.error)
+      return ((again.data ?? []) as NpcSheetRow[]).map(mapNpcSheet)
+    }
+    this.fail(inserted.error)
+    return [...sheets, ...((inserted.data ?? []) as NpcSheetRow[]).map(mapNpcSheet)]
+  }
+
+  async createNpcSheet(entryId: string) {
+    const existing = await this.client.from("npc_sheets").select(NPC_COLUMNS).eq("entry_id", entryId).maybeSingle()
+    this.fail(existing.error)
+    if (existing.data) return mapNpcSheet(existing.data as NpcSheetRow)
+
+    const entry = await this.client.from("entries").select("id, campaign_id, body").eq("id", entryId).maybeSingle()
+    this.fail(entry.error)
+    const row = entry.data as { id: string; campaign_id: string; body: unknown } | null
+    if (!row) throw new DataError("That character is gone.")
+
+    const alliances = await this.client
+      .from("list_items")
+      .select("id, entry_id, list_key, label, created_at")
+      .eq("entry_id", entryId)
+    this.fail(alliances.error)
+    const people = ((alliances.data ?? []) as AllianceRow[])
+      .filter((item) => item.list_key === "alliances")
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .map((item) => ({ id: item.id, label: item.label }))
+    const sheet = npcSheetFromEntry({ id: row.id, campaignId: row.campaign_id, body: asDoc(row.body) }, people, new Date().toISOString())
+    const inserted = await this.client
+      .from("npc_sheets")
+      .insert({
+        entry_id: sheet.entryId,
+        campaign_id: sheet.campaignId,
+        description: sheet.description,
+        motivations: sheet.motivations,
+        affinity: sheet.affinity,
+        hostile_at: sheet.hostileAt,
+        friendly_at: sheet.friendlyAt,
+        people: sheet.people,
+      })
+      .select(NPC_COLUMNS)
+      .single()
+    if (inserted.error?.code === "23505") {
+      const again = await this.client.from("npc_sheets").select(NPC_COLUMNS).eq("entry_id", entryId).single()
+      this.fail(again.error)
+      return mapNpcSheet(again.data as NpcSheetRow)
+    }
+    this.fail(inserted.error)
+    return mapNpcSheet(inserted.data as NpcSheetRow)
+  }
+
+  async updateNpcSheet(entryId: string, patch: NpcSheetPatch) {
+    const row: Record<string, unknown> = {}
+    if (patch.description !== undefined) row.description = patch.description
+    if (patch.motivations !== undefined) row.motivations = patch.motivations
+    if (patch.affinity !== undefined) row.affinity = patch.affinity
+    if (patch.hostileAt !== undefined) row.hostile_at = patch.hostileAt
+    if (patch.friendlyAt !== undefined) row.friendly_at = patch.friendlyAt
+    if (patch.people !== undefined) row.people = patch.people
+    if (Object.keys(row).length === 0) return
+    const { error } = await this.client.from("npc_sheets").update(row).eq("entry_id", entryId)
     this.fail(error)
     const touched = await this.client.from("entries").update({ updated_at: new Date().toISOString() }).eq("id", entryId)
     this.fail(touched.error)

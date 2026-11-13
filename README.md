@@ -33,4 +33,6 @@ Story Beats holds renameable subsections, each with a description. Inside a subs
 
 Each player character opens as one sheet. It has a background, class and subclass with a link that opens Roll20 or another site in a new tab, and notes on how the subclass is developing. Alliances are added with Enter, then reordered or removed. Recent events carry a session tag. Checking a personal objective files that objective under recent events.
 
+Each NPC opens in the same wide sheet: a description, motivations, and an affinity score. Raise or lower the score, and set the numbers where it turns red or green; anything between stays neutral. Alliances use the same list as player characters.
+
 Other sections keep entries in alphabetical order inside each subsection. Notes use bold, italic, underline, and five highlight colors. Each entry can hold an image, a named list such as alliances, and links to other entries in the campaign.

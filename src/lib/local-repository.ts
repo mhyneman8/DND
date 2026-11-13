@@ -2,9 +2,10 @@ import { idbDelete, idbGet, idbSet } from "./idb.ts"
 import { extensionFor, readDataUrl, validateImage } from "./images.ts"
 import { now, uid } from "./ids.ts"
 import { DataError, type CreateEntryInput, type CreateLinkInput, type CreateListItemInput, type CreateStoryItemInput, type Repository, type SignUpResult } from "./repository.ts"
+import { normalizeNpcSheet, npcSheetFromEntry } from "./npc.ts"
 import { normalizePcSheet, pcSheetFromEntry } from "./pc.ts"
 import { asDoc, emptyDoc } from "./text.ts"
-import type { Campaign, CampaignPatch, Entry, EntryLink, EntryPatch, ListItem, PcPerson, PcSheet, PcSheetPatch, PlotSubsection, PlotSubsectionPatch, StoryItem, StoryItemPatch } from "./types.ts"
+import type { Campaign, CampaignPatch, Entry, EntryLink, EntryPatch, ListItem, NpcSheet, NpcSheetPatch, PcPerson, PcSheet, PcSheetPatch, PlotSubsection, PlotSubsectionPatch, StoryItem, StoryItemPatch } from "./types.ts"
 
 const STORAGE_KEY = "dm-table:v1"
 
@@ -18,6 +19,7 @@ type LocalDb = {
   plotSubsections: PlotSubsection[]
   storyItems: StoryItem[]
   pcSheets: PcSheet[]
+  npcSheets: NpcSheet[]
 }
 
 function alliancePeople(items: ListItem[], entryId: string): PcPerson[] {
@@ -28,7 +30,7 @@ function alliancePeople(items: ListItem[], entryId: string): PcPerson[] {
 }
 
 function emptyDb(): LocalDb {
-  return { campaigns: [], entries: [], listItems: [], links: [], plotSubsections: [], storyItems: [], pcSheets: [] }
+  return { campaigns: [], entries: [], listItems: [], links: [], plotSubsections: [], storyItems: [], pcSheets: [], npcSheets: [] }
 }
 
 function adoptLegacyStoryBeats(db: LocalDb) {
@@ -100,6 +102,10 @@ function loadDb(): { db: LocalDb; migrated: boolean } {
         })),
         pcSheets: (parsed.pcSheets ?? []).flatMap((sheet) => {
           const normalized = normalizePcSheet(sheet)
+          return normalized ? [normalized] : []
+        }),
+        npcSheets: (parsed.npcSheets ?? []).flatMap((sheet) => {
+          const normalized = normalizeNpcSheet(sheet)
           return normalized ? [normalized] : []
         }),
       },
@@ -183,6 +189,7 @@ export class LocalRepository implements Repository {
     this.db.plotSubsections = this.db.plotSubsections.filter((item) => item.campaignId !== id)
     this.db.storyItems = this.db.storyItems.filter((item) => item.campaignId !== id)
     this.db.pcSheets = this.db.pcSheets.filter((item) => item.campaignId !== id)
+    this.db.npcSheets = this.db.npcSheets.filter((item) => item.campaignId !== id)
     this.commit()
     await Promise.all(paths.map((path) => idbDelete(path).catch(() => undefined)))
   }
@@ -232,6 +239,7 @@ export class LocalRepository implements Repository {
     )
     this.db.links = this.db.links.filter((link) => link.sourceEntryId !== id && link.targetEntryId !== id)
     this.db.pcSheets = this.db.pcSheets.filter((sheet) => sheet.entryId !== id)
+    this.db.npcSheets = this.db.npcSheets.filter((sheet) => sheet.entryId !== id)
     this.commit()
     if (entry?.imagePath) await idbDelete(entry.imagePath).catch(() => undefined)
   }
@@ -424,6 +432,52 @@ export class LocalRepository implements Repository {
     if (patch.people !== undefined) sheet.people = patch.people.map((person) => ({ ...person }))
     if (patch.events !== undefined) sheet.events = patch.events.map((event) => ({ ...event }))
     if (patch.objectives !== undefined) sheet.objectives = patch.objectives.map((item) => ({ ...item }))
+    sheet.updatedAt = now()
+    const entry = this.db.entries.find((item) => item.id === entryId)
+    if (entry) entry.updatedAt = sheet.updatedAt
+    this.commit()
+  }
+
+  async listNpcSheets(campaignId: string) {
+    let changed = false
+    const characters = this.db.entries.filter((entry) => entry.campaignId === campaignId && entry.section === "npcs")
+    for (const entry of characters) {
+      if (this.db.npcSheets.some((sheet) => sheet.entryId === entry.id)) continue
+      this.db.npcSheets.push(npcSheetFromEntry(entry, alliancePeople(this.db.listItems, entry.id), entry.updatedAt))
+      changed = true
+    }
+    if (changed) this.commit()
+    return this.db.npcSheets
+      .filter((sheet) => sheet.campaignId === campaignId)
+      .flatMap((sheet) => {
+        const normalized = normalizeNpcSheet(sheet)
+        return normalized ? [normalized] : []
+      })
+  }
+
+  async createNpcSheet(entryId: string) {
+    const existing = this.db.npcSheets.find((sheet) => sheet.entryId === entryId)
+    if (existing) {
+      const normalized = normalizeNpcSheet(existing)
+      if (normalized) return normalized
+    }
+    const entry = this.db.entries.find((item) => item.id === entryId)
+    if (!entry) throw new DataError("That character is gone.")
+    const sheet = npcSheetFromEntry(entry, alliancePeople(this.db.listItems, entry.id), now())
+    this.db.npcSheets.push(sheet)
+    this.commit()
+    return normalizeNpcSheet(sheet) ?? sheet
+  }
+
+  async updateNpcSheet(entryId: string, patch: NpcSheetPatch) {
+    const sheet = this.db.npcSheets.find((item) => item.entryId === entryId)
+    if (!sheet) throw new DataError("That character sheet is gone.")
+    if (patch.description !== undefined) sheet.description = patch.description
+    if (patch.motivations !== undefined) sheet.motivations = patch.motivations
+    if (patch.affinity !== undefined) sheet.affinity = patch.affinity
+    if (patch.hostileAt !== undefined) sheet.hostileAt = patch.hostileAt
+    if (patch.friendlyAt !== undefined) sheet.friendlyAt = patch.friendlyAt
+    if (patch.people !== undefined) sheet.people = patch.people.map((person) => ({ ...person }))
     sheet.updatedAt = now()
     const entry = this.db.entries.find((item) => item.id === entryId)
     if (entry) entry.updatedAt = sheet.updatedAt

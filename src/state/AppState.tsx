@@ -10,6 +10,8 @@ import type {
   EntryLink,
   EntryPatch,
   ListItem,
+  NpcSheet,
+  NpcSheetPatch,
   PanelSectionId,
   PcSheet,
   PcSheetPatch,
@@ -38,6 +40,7 @@ type AppContextValue = {
   plotSubsections: PlotSubsection[]
   storyItems: StoryItem[]
   pcSheets: PcSheet[]
+  npcSheets: NpcSheet[]
   campaignsLoaded: boolean
   entriesLoadedFor: string | null
   activeCampaignId: string | null
@@ -70,6 +73,8 @@ type AppContextValue = {
   deleteStoryItem: (id: string) => Promise<void>
   ensurePcSheet: (entryId: string) => Promise<void>
   updatePcSheet: (entryId: string, recipe: (sheet: PcSheet) => PcSheetPatch) => Promise<void>
+  ensureNpcSheet: (entryId: string) => Promise<void>
+  updateNpcSheet: (entryId: string, recipe: (sheet: NpcSheet) => NpcSheetPatch) => Promise<void>
   uploadImage: (file: File) => Promise<string>
   imageUrl: (path: string) => Promise<string | null>
   deleteStoredImage: (path: string) => Promise<void>
@@ -95,6 +100,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const next = typeof update === "function" ? update(pcSheetsRef.current) : update
     pcSheetsRef.current = next
     setPcSheetsState(next)
+  }, [])
+  const npcSheetsRef = useRef<NpcSheet[]>([])
+  const [npcSheets, setNpcSheetsState] = useState<NpcSheet[]>([])
+  const setNpcSheets = useCallback((update: NpcSheet[] | ((current: NpcSheet[]) => NpcSheet[])) => {
+    const next = typeof update === "function" ? update(npcSheetsRef.current) : update
+    npcSheetsRef.current = next
+    setNpcSheetsState(next)
   }, [])
   const [campaignsLoaded, setCampaignsLoaded] = useState(false)
   const [entriesLoadedFor, setEntriesLoadedFor] = useState<string | null>(null)
@@ -143,6 +155,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setPlotSubsections([])
       setStoryItems([])
       setPcSheets([])
+      setNpcSheets([])
       setCampaignsLoaded(false)
       setActiveCampaignId(null)
       return
@@ -172,7 +185,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [authReady, email, repo, report, setPcSheets])
+  }, [authReady, email, repo, report, setPcSheets, setNpcSheets])
 
   useEffect(() => {
     if (status !== "ready" || !activeCampaignId) {
@@ -182,6 +195,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setPlotSubsections([])
         setStoryItems([])
         setPcSheets([])
+        setNpcSheets([])
         setEntriesLoadedFor(null)
       }
       return
@@ -193,14 +207,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPlotSubsections([])
     setStoryItems([])
     setPcSheets([])
+    setNpcSheets([])
     void Promise.all([
       repo.listEntries(campaignId),
       repo.listLinks(campaignId),
       repo.listPlotSubsections(campaignId),
       repo.listStoryItems(campaignId),
       repo.listPcSheets(campaignId),
+      repo.listNpcSheets(campaignId),
     ])
-      .then(([nextEntries, nextLinks, nextSubsections, nextStories, nextSheets]) => {
+      .then(([nextEntries, nextLinks, nextSubsections, nextStories, nextSheets, nextNpcSheets]) => {
         if (cancelled) return
         setEntries((current) => {
           const extras = current.filter(
@@ -232,6 +248,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           )
           return [...nextSheets, ...extras]
         })
+        setNpcSheets((current) => {
+          const extras = current.filter(
+            (sheet) => sheet.campaignId === campaignId && !nextNpcSheets.some((row) => row.entryId === sheet.entryId),
+          )
+          return [...nextNpcSheets, ...extras]
+        })
         setEntriesLoadedFor(campaignId)
       })
       .catch((caught: unknown) => {
@@ -242,7 +264,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [status, activeCampaignId, repo, report, setPcSheets])
+  }, [status, activeCampaignId, repo, report, setPcSheets, setNpcSheets])
 
   useEffect(() => {
     setActiveEntryId(null)
@@ -375,10 +397,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setPcSheets((current) => (current.some((item) => item.entryId === sheet.entryId) ? current : [...current, sheet]))
         }
       }
+      if (entry.section === "npcs") {
+        const sheet = await repo.createNpcSheet(entry.id)
+        if (campaignIdRef.current === entry.campaignId) {
+          setNpcSheets((current) => (current.some((item) => item.entryId === sheet.entryId) ? current : [...current, sheet]))
+        }
+      }
       setEntriesLoadedFor(activeCampaignId)
       return entry
     },
-    [activeCampaignId, repo, setPcSheets],
+    [activeCampaignId, repo, setPcSheets, setNpcSheets],
   )
 
   const updateEntry = useCallback(
@@ -411,12 +439,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
             .map((item) => (item.linkedEntryId === id ? { ...item, linkedEntryId: null } : item)),
         )
         setPcSheets((current) => current.filter((sheet) => sheet.entryId !== id))
+        setNpcSheets((current) => current.filter((sheet) => sheet.entryId !== id))
         setActiveEntryId((current) => (current === id ? null : current))
       } catch (caught) {
         report(caught)
       }
     },
-    [repo, report, setPcSheets],
+    [repo, report, setPcSheets, setNpcSheets],
   )
 
   const createItem = useCallback(
@@ -598,6 +627,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [queue, repo, report, setPcSheets],
   )
 
+  const ensureNpcSheet = useCallback(
+    async (entryId: string) => {
+      try {
+        const sheet = await repo.createNpcSheet(entryId)
+        if (campaignIdRef.current !== sheet.campaignId) return
+        setNpcSheets((current) => (current.some((item) => item.entryId === sheet.entryId) ? current : [...current, sheet]))
+      } catch (caught) {
+        report(caught)
+      }
+    },
+    [repo, report, setNpcSheets],
+  )
+
+  const updateNpcSheet = useCallback(
+    async (entryId: string, recipe: (sheet: NpcSheet) => NpcSheetPatch) => {
+      const current = npcSheetsRef.current.find((sheet) => sheet.entryId === entryId)
+      if (!current) return
+      const patch = recipe(current)
+      if (Object.keys(patch).length === 0) return
+      const updatedAt = new Date().toISOString()
+      const nextSheet = { ...current, ...patch, updatedAt }
+      setNpcSheets((sheets) => sheets.map((sheet) => (sheet.entryId === entryId ? nextSheet : sheet)))
+      setEntries((rows) => rows.map((entry) => (entry.id === entryId ? { ...entry, updatedAt } : entry)))
+      try {
+        await queue(`npc:${entryId}`, () => repo.updateNpcSheet(entryId, patch))
+      } catch (caught) {
+        report(caught)
+      }
+    },
+    [queue, repo, report, setNpcSheets],
+  )
+
   const uploadImage = useCallback(
     async (file: File) => {
       if (!activeCampaignId) throw new Error("Choose a campaign first.")
@@ -624,6 +685,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     plotSubsections,
     storyItems,
     pcSheets,
+    npcSheets,
     campaignsLoaded,
     entriesLoadedFor,
     activeCampaignId,
@@ -656,6 +718,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     deleteStoryItem,
     ensurePcSheet,
     updatePcSheet,
+    ensureNpcSheet,
+    updateNpcSheet,
     uploadImage,
     imageUrl,
     deleteStoredImage,

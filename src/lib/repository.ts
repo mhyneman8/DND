@@ -9,6 +9,8 @@ import type {
   PlotSubsection,
   PlotSubsectionPatch,
   RichDoc,
+  NpcSheet,
+  NpcSheetPatch,
   PcSheet,
   PcSheetPatch,
   StoryItem,
@@ -88,6 +90,9 @@ export interface Repository {
   listPcSheets(campaignId: string): Promise<PcSheet[]>
   createPcSheet(entryId: string): Promise<PcSheet>
   updatePcSheet(entryId: string, patch: PcSheetPatch): Promise<void>
+  listNpcSheets(campaignId: string): Promise<NpcSheet[]>
+  createNpcSheet(entryId: string): Promise<NpcSheet>
+  updateNpcSheet(entryId: string, patch: NpcSheetPatch): Promise<void>
   uploadImage(campaignId: string, file: File): Promise<string>
   imageUrl(path: string): Promise<string | null>
   deleteImage(path: string): Promise<void>

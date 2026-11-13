@@ -119,3 +119,21 @@ export type PcSheet = {
 export type PcSheetPatch = Partial<
   Pick<PcSheet, "className" | "subclass" | "sheetUrl" | "bio" | "subclassNotes" | "people" | "events" | "objectives">
 >
+
+export type AffinityTone = "hostile" | "neutral" | "friendly"
+
+export type NpcSheet = {
+  entryId: string
+  campaignId: string
+  description: RichDoc
+  motivations: RichDoc
+  affinity: number
+  hostileAt: number
+  friendlyAt: number
+  people: PcPerson[]
+  updatedAt: string
+}
+
+export type NpcSheetPatch = Partial<
+  Pick<NpcSheet, "description" | "motivations" | "affinity" | "hostileAt" | "friendlyAt" | "people">
+>
