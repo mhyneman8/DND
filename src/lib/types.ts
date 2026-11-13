@@ -137,3 +137,19 @@ export type NpcSheet = {
 export type NpcSheetPatch = Partial<
   Pick<NpcSheet, "description" | "motivations" | "affinity" | "hostileAt" | "friendlyAt" | "people">
 >
+
+export type CatalogKind = "affliction" | "location" | "item"
+
+export type CatalogSheet = {
+  entryId: string
+  campaignId: string
+  kind: CatalogKind
+  savingThrow: string
+  damage: string
+  place: string
+  effect: string
+  notes: RichDoc
+  updatedAt: string
+}
+
+export type CatalogSheetPatch = Partial<Pick<CatalogSheet, "savingThrow" | "damage" | "place" | "effect" | "notes">>

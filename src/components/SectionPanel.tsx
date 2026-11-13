@@ -2,6 +2,7 @@ import { ChevronLeft, X } from "lucide-react"
 import { useEffect } from "react"
 import { sectionById } from "../lib/sections.ts"
 import { useApp } from "../state/AppState.tsx"
+import { CatalogSection } from "./Catalogs.tsx"
 import { EntryEditor } from "./EntryEditor.tsx"
 import { EntryList } from "./EntryList.tsx"
 import { Npcs } from "./Npcs.tsx"
@@ -60,6 +61,8 @@ export function SectionPanel() {
           <PlayerCharacters />
         ) : activeSection === "npcs" ? (
           <Npcs />
+        ) : activeSection === "afflictions" || activeSection === "locations" || activeSection === "misc" ? (
+          <CatalogSection section={activeSection} />
         ) : entry ? (
           <EntryEditor entry={entry} />
         ) : (

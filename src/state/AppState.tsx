@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { catalogKindFor } from "../lib/catalog.ts"
 import { createRepository } from "../lib/create-repository.ts"
 import type { Repository } from "../lib/repository.ts"
 import { isSectionId } from "../lib/sections.ts"
@@ -6,6 +7,8 @@ import { emptyDoc, messageOf } from "../lib/text.ts"
 import type {
   Campaign,
   CampaignPatch,
+  CatalogSheet,
+  CatalogSheetPatch,
   Entry,
   EntryLink,
   EntryPatch,
@@ -41,6 +44,7 @@ type AppContextValue = {
   storyItems: StoryItem[]
   pcSheets: PcSheet[]
   npcSheets: NpcSheet[]
+  catalogSheets: CatalogSheet[]
   campaignsLoaded: boolean
   entriesLoadedFor: string | null
   activeCampaignId: string | null
@@ -75,6 +79,8 @@ type AppContextValue = {
   updatePcSheet: (entryId: string, recipe: (sheet: PcSheet) => PcSheetPatch) => Promise<void>
   ensureNpcSheet: (entryId: string) => Promise<void>
   updateNpcSheet: (entryId: string, recipe: (sheet: NpcSheet) => NpcSheetPatch) => Promise<void>
+  ensureCatalogSheet: (entryId: string) => Promise<void>
+  updateCatalogSheet: (entryId: string, recipe: (sheet: CatalogSheet) => CatalogSheetPatch) => Promise<void>
   uploadImage: (file: File) => Promise<string>
   imageUrl: (path: string) => Promise<string | null>
   deleteStoredImage: (path: string) => Promise<void>
@@ -107,6 +113,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const next = typeof update === "function" ? update(npcSheetsRef.current) : update
     npcSheetsRef.current = next
     setNpcSheetsState(next)
+  }, [])
+  const catalogSheetsRef = useRef<CatalogSheet[]>([])
+  const [catalogSheets, setCatalogSheetsState] = useState<CatalogSheet[]>([])
+  const setCatalogSheets = useCallback((update: CatalogSheet[] | ((current: CatalogSheet[]) => CatalogSheet[])) => {
+    const next = typeof update === "function" ? update(catalogSheetsRef.current) : update
+    catalogSheetsRef.current = next
+    setCatalogSheetsState(next)
   }, [])
   const [campaignsLoaded, setCampaignsLoaded] = useState(false)
   const [entriesLoadedFor, setEntriesLoadedFor] = useState<string | null>(null)
@@ -156,6 +169,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setStoryItems([])
       setPcSheets([])
       setNpcSheets([])
+      setCatalogSheets([])
       setCampaignsLoaded(false)
       setActiveCampaignId(null)
       return
@@ -185,7 +199,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [authReady, email, repo, report, setPcSheets, setNpcSheets])
+  }, [authReady, email, repo, report, setPcSheets, setNpcSheets, setCatalogSheets])
 
   useEffect(() => {
     if (status !== "ready" || !activeCampaignId) {
@@ -196,6 +210,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setStoryItems([])
         setPcSheets([])
         setNpcSheets([])
+        setCatalogSheets([])
         setEntriesLoadedFor(null)
       }
       return
@@ -208,6 +223,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setStoryItems([])
     setPcSheets([])
     setNpcSheets([])
+    setCatalogSheets([])
     void Promise.all([
       repo.listEntries(campaignId),
       repo.listLinks(campaignId),
@@ -215,8 +231,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       repo.listStoryItems(campaignId),
       repo.listPcSheets(campaignId),
       repo.listNpcSheets(campaignId),
+      repo.listCatalogSheets(campaignId),
     ])
-      .then(([nextEntries, nextLinks, nextSubsections, nextStories, nextSheets, nextNpcSheets]) => {
+      .then(([nextEntries, nextLinks, nextSubsections, nextStories, nextSheets, nextNpcSheets, nextCatalogSheets]) => {
         if (cancelled) return
         setEntries((current) => {
           const extras = current.filter(
@@ -254,6 +271,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           )
           return [...nextNpcSheets, ...extras]
         })
+        setCatalogSheets((current) => {
+          const extras = current.filter(
+            (sheet) => sheet.campaignId === campaignId && !nextCatalogSheets.some((row) => row.entryId === sheet.entryId),
+          )
+          return [...nextCatalogSheets, ...extras]
+        })
         setEntriesLoadedFor(campaignId)
       })
       .catch((caught: unknown) => {
@@ -264,7 +287,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [status, activeCampaignId, repo, report, setPcSheets, setNpcSheets])
+  }, [status, activeCampaignId, repo, report, setPcSheets, setNpcSheets, setCatalogSheets])
 
   useEffect(() => {
     setActiveEntryId(null)
@@ -403,10 +426,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setNpcSheets((current) => (current.some((item) => item.entryId === sheet.entryId) ? current : [...current, sheet]))
         }
       }
+      if (catalogKindFor(entry.section)) {
+        const sheet = await repo.createCatalogSheet(entry.id)
+        if (campaignIdRef.current === entry.campaignId) {
+          setCatalogSheets((current) => (current.some((item) => item.entryId === sheet.entryId) ? current : [...current, sheet]))
+        }
+      }
       setEntriesLoadedFor(activeCampaignId)
       return entry
     },
-    [activeCampaignId, repo, setPcSheets, setNpcSheets],
+    [activeCampaignId, repo, setPcSheets, setNpcSheets, setCatalogSheets],
   )
 
   const updateEntry = useCallback(
@@ -440,12 +469,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
         setPcSheets((current) => current.filter((sheet) => sheet.entryId !== id))
         setNpcSheets((current) => current.filter((sheet) => sheet.entryId !== id))
+        setCatalogSheets((current) => current.filter((sheet) => sheet.entryId !== id))
         setActiveEntryId((current) => (current === id ? null : current))
       } catch (caught) {
         report(caught)
       }
     },
-    [repo, report, setPcSheets, setNpcSheets],
+    [repo, report, setPcSheets, setNpcSheets, setCatalogSheets],
   )
 
   const createItem = useCallback(
@@ -659,6 +689,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [queue, repo, report, setNpcSheets],
   )
 
+  const ensureCatalogSheet = useCallback(
+    async (entryId: string) => {
+      try {
+        const sheet = await repo.createCatalogSheet(entryId)
+        if (campaignIdRef.current !== sheet.campaignId) return
+        setCatalogSheets((current) => (current.some((item) => item.entryId === sheet.entryId) ? current : [...current, sheet]))
+      } catch (caught) {
+        report(caught)
+      }
+    },
+    [repo, report, setCatalogSheets],
+  )
+
+  const updateCatalogSheet = useCallback(
+    async (entryId: string, recipe: (sheet: CatalogSheet) => CatalogSheetPatch) => {
+      const current = catalogSheetsRef.current.find((sheet) => sheet.entryId === entryId)
+      if (!current) return
+      const patch = recipe(current)
+      if (Object.keys(patch).length === 0) return
+      const updatedAt = new Date().toISOString()
+      const nextSheet = { ...current, ...patch, updatedAt }
+      setCatalogSheets((sheets) => sheets.map((sheet) => (sheet.entryId === entryId ? nextSheet : sheet)))
+      setEntries((rows) => rows.map((entry) => (entry.id === entryId ? { ...entry, updatedAt } : entry)))
+      try {
+        await queue(`catalog:${entryId}`, () => repo.updateCatalogSheet(entryId, patch))
+      } catch (caught) {
+        report(caught)
+      }
+    },
+    [queue, repo, report, setCatalogSheets],
+  )
+
   const uploadImage = useCallback(
     async (file: File) => {
       if (!activeCampaignId) throw new Error("Choose a campaign first.")
@@ -686,6 +748,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     storyItems,
     pcSheets,
     npcSheets,
+    catalogSheets,
     campaignsLoaded,
     entriesLoadedFor,
     activeCampaignId,
@@ -720,6 +783,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     updatePcSheet,
     ensureNpcSheet,
     updateNpcSheet,
+    ensureCatalogSheet,
+    updateCatalogSheet,
     uploadImage,
     imageUrl,
     deleteStoredImage,

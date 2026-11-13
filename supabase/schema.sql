@@ -127,6 +127,22 @@ create table if not exists public.npc_sheets (
 
 create index if not exists npc_sheets_campaign_idx on public.npc_sheets (campaign_id);
 
+create table if not exists public.catalog_sheets (
+  entry_id uuid primary key references public.entries (id) on delete cascade,
+  campaign_id uuid not null references public.campaigns (id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  kind text not null check (kind in ('affliction', 'location', 'item')),
+  saving_throw text not null default '',
+  damage text not null default '',
+  place text not null default '',
+  effect text not null default '',
+  notes jsonb not null default '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists catalog_sheets_campaign_idx on public.catalog_sheets (campaign_id);
+
 drop trigger if exists campaigns_updated_at on public.campaigns;
 create trigger campaigns_updated_at
 before update on public.campaigns
@@ -157,6 +173,11 @@ create trigger npc_sheets_updated_at
 before update on public.npc_sheets
 for each row execute function public.set_updated_at();
 
+drop trigger if exists catalog_sheets_updated_at on public.catalog_sheets;
+create trigger catalog_sheets_updated_at
+before update on public.catalog_sheets
+for each row execute function public.set_updated_at();
+
 alter table public.campaigns enable row level security;
 alter table public.entries enable row level security;
 alter table public.list_items enable row level security;
@@ -165,6 +186,7 @@ alter table public.plot_subsections enable row level security;
 alter table public.story_items enable row level security;
 alter table public.pc_sheets enable row level security;
 alter table public.npc_sheets enable row level security;
+alter table public.catalog_sheets enable row level security;
 
 drop policy if exists "campaigns_all" on public.campaigns;
 create policy "campaigns_all" on public.campaigns
@@ -214,11 +236,17 @@ for all to authenticated
 using (user_id = auth.uid())
 with check (user_id = auth.uid());
 
+drop policy if exists "catalog_sheets_all" on public.catalog_sheets;
+create policy "catalog_sheets_all" on public.catalog_sheets
+for all to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
 -- Earlier drafts stored campaigns under a worlds table. Drop that layer if it is still there.
 alter table public.campaigns drop column if exists world_id;
 drop table if exists public.worlds;
 
-grant select, insert, update, delete on public.campaigns, public.entries, public.list_items, public.links, public.plot_subsections, public.story_items, public.pc_sheets, public.npc_sheets to authenticated;
+grant select, insert, update, delete on public.campaigns, public.entries, public.list_items, public.links, public.plot_subsections, public.story_items, public.pc_sheets, public.npc_sheets, public.catalog_sheets to authenticated;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (

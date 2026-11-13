@@ -35,4 +35,6 @@ Each player character opens as one sheet. It has a background, class and subclas
 
 Each NPC opens in the same wide sheet: a description, motivations, and an affinity score. Raise or lower the score, and set the numbers where it turns red or green; anything between stays neutral. Alliances use the same list as player characters.
 
-Other sections keep entries in alphabetical order inside each subsection. Notes use bold, italic, underline, and five highlight colors. Each entry can hold an image, a named list such as alliances, and links to other entries in the campaign.
+An affliction has a name, a saving throw, optional damage, and a description. Link it to a player character or NPC and a mark appears beside that character’s name on Home and in their own list. A place has a name, a location, and events or other notes. NPCs linked to that place can be opened from the entry. An item has a name, an effect, and a description.
+
+Monsters and Maps keep entries in alphabetical order inside each subsection. Notes use bold, italic, underline, and five highlight colors. Each entry can hold an image, a named list such as alliances, and links to other entries in the campaign.

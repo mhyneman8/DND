@@ -1,5 +1,6 @@
 import { Minus, Plus } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import { afflictionsOn } from "../lib/catalog.ts"
 import { uid } from "../lib/ids.ts"
 import { AFFINITY_COLORS, AFFINITY_LABELS, affinityTone, moveFriendlyAt, moveHostileAt } from "../lib/npc.ts"
 import { orderByIds } from "../lib/pc.ts"
@@ -7,6 +8,7 @@ import { compareNames, messageOf } from "../lib/text.ts"
 import type { Entry, NpcSheet, RichDoc } from "../lib/types.ts"
 import { useAutosave } from "../lib/useAutosave.ts"
 import { useApp } from "../state/AppState.tsx"
+import { AfflictionMark } from "./AfflictionMark.tsx"
 import { ConfirmDialog } from "./ConfirmDialog.tsx"
 import { EntryLinks } from "./EntryLinks.tsx"
 import { ImageUpload } from "./ImageUpload.tsx"
@@ -34,7 +36,7 @@ export function Npcs() {
 }
 
 function NpcList() {
-  const { campaign, entries, createEntry, selectEntry } = useApp()
+  const { campaign, entries, links, createEntry, selectEntry } = useApp()
   const [name, setName] = useState("")
   const [query, setQuery] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -93,7 +95,8 @@ function NpcList() {
                 onClick={() => selectEntry(character.id)}
                 className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm hover:bg-white/5"
               >
-                <span className="truncate">{character.name}</span>
+                <span className="min-w-0 flex-1 truncate">{character.name}</span>
+                <AfflictionMark entryId={character.id} entries={entries} links={links} />
               </button>
             </li>
           ))}
@@ -125,6 +128,7 @@ function NpcSheetView({ entry, sheet }: { entry: Entry; sheet: NpcSheet }) {
   const tone = affinityTone(sheet.affinity, sheet.hostileAt, sheet.friendlyAt)
   const color = AFFINITY_COLORS[tone]
   const campaignEntries = entries.filter((item) => item.campaignId === campaign?.id)
+  const afflicted = afflictionsOn(entry.id, entries, links).length > 0
 
   function setAffinity(next: number) {
     void updateNpcSheet(entry.id, () => ({ affinity: Math.trunc(next) }))
@@ -136,10 +140,11 @@ function NpcSheetView({ entry, sheet }: { entry: Entry; sheet: NpcSheet }) {
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-2">
       <input
         value={name}
         aria-label="NPC name"
-        className={`${fieldClass} font-serif text-xl`}
+        className={`${fieldClass} min-w-0 flex-1 font-serif text-xl ${afflicted ? "!w-auto" : ""}`}
         onChange={(event) => {
           const next = event.target.value
           setName(next)
@@ -162,6 +167,8 @@ function NpcSheetView({ entry, sheet }: { entry: Entry; sheet: NpcSheet }) {
           void updateEntry(entry.id, { name: next })
         }}
       />
+      <AfflictionMark entryId={entry.id} entries={entries} links={links} />
+      </div>
       <ImageUpload
         path={entry.imagePath}
         alt={name || "NPC portrait"}

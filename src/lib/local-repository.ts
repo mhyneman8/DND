@@ -2,10 +2,11 @@ import { idbDelete, idbGet, idbSet } from "./idb.ts"
 import { extensionFor, readDataUrl, validateImage } from "./images.ts"
 import { now, uid } from "./ids.ts"
 import { DataError, type CreateEntryInput, type CreateLinkInput, type CreateListItemInput, type CreateStoryItemInput, type Repository, type SignUpResult } from "./repository.ts"
+import { catalogSheetFromEntry, normalizeCatalogSheet } from "./catalog.ts"
 import { normalizeNpcSheet, npcSheetFromEntry } from "./npc.ts"
 import { normalizePcSheet, pcSheetFromEntry } from "./pc.ts"
 import { asDoc, emptyDoc } from "./text.ts"
-import type { Campaign, CampaignPatch, Entry, EntryLink, EntryPatch, ListItem, NpcSheet, NpcSheetPatch, PcPerson, PcSheet, PcSheetPatch, PlotSubsection, PlotSubsectionPatch, StoryItem, StoryItemPatch } from "./types.ts"
+import type { Campaign, CampaignPatch, CatalogSheet, CatalogSheetPatch, Entry, EntryLink, EntryPatch, ListItem, NpcSheet, NpcSheetPatch, PcPerson, PcSheet, PcSheetPatch, PlotSubsection, PlotSubsectionPatch, StoryItem, StoryItemPatch } from "./types.ts"
 
 const STORAGE_KEY = "dm-table:v1"
 
@@ -20,6 +21,7 @@ type LocalDb = {
   storyItems: StoryItem[]
   pcSheets: PcSheet[]
   npcSheets: NpcSheet[]
+  catalogSheets: CatalogSheet[]
 }
 
 function alliancePeople(items: ListItem[], entryId: string): PcPerson[] {
@@ -30,7 +32,7 @@ function alliancePeople(items: ListItem[], entryId: string): PcPerson[] {
 }
 
 function emptyDb(): LocalDb {
-  return { campaigns: [], entries: [], listItems: [], links: [], plotSubsections: [], storyItems: [], pcSheets: [], npcSheets: [] }
+  return { campaigns: [], entries: [], listItems: [], links: [], plotSubsections: [], storyItems: [], pcSheets: [], npcSheets: [], catalogSheets: [] }
 }
 
 function adoptLegacyStoryBeats(db: LocalDb) {
@@ -106,6 +108,10 @@ function loadDb(): { db: LocalDb; migrated: boolean } {
         }),
         npcSheets: (parsed.npcSheets ?? []).flatMap((sheet) => {
           const normalized = normalizeNpcSheet(sheet)
+          return normalized ? [normalized] : []
+        }),
+        catalogSheets: (parsed.catalogSheets ?? []).flatMap((sheet) => {
+          const normalized = normalizeCatalogSheet(sheet)
           return normalized ? [normalized] : []
         }),
       },
@@ -190,6 +196,7 @@ export class LocalRepository implements Repository {
     this.db.storyItems = this.db.storyItems.filter((item) => item.campaignId !== id)
     this.db.pcSheets = this.db.pcSheets.filter((item) => item.campaignId !== id)
     this.db.npcSheets = this.db.npcSheets.filter((item) => item.campaignId !== id)
+    this.db.catalogSheets = this.db.catalogSheets.filter((item) => item.campaignId !== id)
     this.commit()
     await Promise.all(paths.map((path) => idbDelete(path).catch(() => undefined)))
   }
@@ -240,6 +247,7 @@ export class LocalRepository implements Repository {
     this.db.links = this.db.links.filter((link) => link.sourceEntryId !== id && link.targetEntryId !== id)
     this.db.pcSheets = this.db.pcSheets.filter((sheet) => sheet.entryId !== id)
     this.db.npcSheets = this.db.npcSheets.filter((sheet) => sheet.entryId !== id)
+    this.db.catalogSheets = this.db.catalogSheets.filter((sheet) => sheet.entryId !== id)
     this.commit()
     if (entry?.imagePath) await idbDelete(entry.imagePath).catch(() => undefined)
   }
@@ -478,6 +486,53 @@ export class LocalRepository implements Repository {
     if (patch.hostileAt !== undefined) sheet.hostileAt = patch.hostileAt
     if (patch.friendlyAt !== undefined) sheet.friendlyAt = patch.friendlyAt
     if (patch.people !== undefined) sheet.people = patch.people.map((person) => ({ ...person }))
+    sheet.updatedAt = now()
+    const entry = this.db.entries.find((item) => item.id === entryId)
+    if (entry) entry.updatedAt = sheet.updatedAt
+    this.commit()
+  }
+
+  async listCatalogSheets(campaignId: string) {
+    let changed = false
+    const records = this.db.entries.filter(
+      (entry) => entry.campaignId === campaignId && (entry.section === "afflictions" || entry.section === "locations" || entry.section === "misc"),
+    )
+    for (const entry of records) {
+      if (this.db.catalogSheets.some((sheet) => sheet.entryId === entry.id)) continue
+      this.db.catalogSheets.push(catalogSheetFromEntry(entry, entry.updatedAt))
+      changed = true
+    }
+    if (changed) this.commit()
+    return this.db.catalogSheets
+      .filter((sheet) => sheet.campaignId === campaignId)
+      .flatMap((sheet) => {
+        const normalized = normalizeCatalogSheet(sheet)
+        return normalized ? [normalized] : []
+      })
+  }
+
+  async createCatalogSheet(entryId: string) {
+    const existing = this.db.catalogSheets.find((sheet) => sheet.entryId === entryId)
+    if (existing) {
+      const normalized = normalizeCatalogSheet(existing)
+      if (normalized) return normalized
+    }
+    const entry = this.db.entries.find((item) => item.id === entryId)
+    if (!entry) throw new DataError("That entry is gone.")
+    const sheet = catalogSheetFromEntry(entry, now())
+    this.db.catalogSheets.push(sheet)
+    this.commit()
+    return normalizeCatalogSheet(sheet) ?? sheet
+  }
+
+  async updateCatalogSheet(entryId: string, patch: CatalogSheetPatch) {
+    const sheet = this.db.catalogSheets.find((item) => item.entryId === entryId)
+    if (!sheet) throw new DataError("That sheet is gone.")
+    if (patch.savingThrow !== undefined) sheet.savingThrow = patch.savingThrow
+    if (patch.damage !== undefined) sheet.damage = patch.damage
+    if (patch.place !== undefined) sheet.place = patch.place
+    if (patch.effect !== undefined) sheet.effect = patch.effect
+    if (patch.notes !== undefined) sheet.notes = patch.notes
     sheet.updatedAt = now()
     const entry = this.db.entries.find((item) => item.id === entryId)
     if (entry) entry.updatedAt = sheet.updatedAt

@@ -1,10 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { extensionFor, validateImage } from "./images.ts"
 import { DataError, type CreateEntryInput, type CreateLinkInput, type CreateListItemInput, type CreateStoryItemInput, type Repository } from "./repository.ts"
+import { catalogSheetFromEntry, normalizeCatalogSheet } from "./catalog.ts"
 import { npcSheetFromEntry, normalizeNpcSheet } from "./npc.ts"
 import { asPcEvents, asPcObjectives, asPcPeople, pcSheetFromEntry } from "./pc.ts"
 import { asDoc } from "./text.ts"
-import type { Campaign, CampaignPatch, Entry, EntryLink, EntryPatch, ListItem, NpcSheet, NpcSheetPatch, PanelSectionId, PcSheet, PcSheetPatch, PlotSubsection, PlotSubsectionPatch, StoryItem, StoryItemPatch, StoryKind } from "./types.ts"
+import type { Campaign, CampaignPatch, CatalogSheet, CatalogSheetPatch, Entry, EntryLink, EntryPatch, ListItem, NpcSheet, NpcSheetPatch, PanelSectionId, PcSheet, PcSheetPatch, PlotSubsection, PlotSubsectionPatch, StoryItem, StoryItemPatch, StoryKind } from "./types.ts"
 
 const BUCKET = "campaign-media"
 
@@ -197,6 +198,49 @@ function mapNpcSheet(row: NpcSheetRow): NpcSheet {
   })
   if (!sheet) throw new DataError("That character sheet is unreadable.")
   return sheet
+}
+
+const CATALOG_COLUMNS = "entry_id, campaign_id, kind, saving_throw, damage, place, effect, notes, updated_at"
+
+type CatalogSheetRow = {
+  entry_id: string
+  campaign_id: string
+  kind: string
+  saving_throw: string
+  damage: string
+  place: string
+  effect: string
+  notes: unknown
+  updated_at: string
+}
+
+function mapCatalogSheet(row: CatalogSheetRow): CatalogSheet {
+  const sheet = normalizeCatalogSheet({
+    entryId: row.entry_id,
+    campaignId: row.campaign_id,
+    kind: row.kind,
+    savingThrow: row.saving_throw,
+    damage: row.damage,
+    place: row.place,
+    effect: row.effect,
+    notes: row.notes,
+    updatedAt: row.updated_at,
+  })
+  if (!sheet) throw new DataError("That sheet is unreadable.")
+  return sheet
+}
+
+function catalogInsert(sheet: CatalogSheet) {
+  return {
+    entry_id: sheet.entryId,
+    campaign_id: sheet.campaignId,
+    kind: sheet.kind,
+    saving_throw: sheet.savingThrow,
+    damage: sheet.damage,
+    place: sheet.place,
+    effect: sheet.effect,
+    notes: sheet.notes,
+  }
 }
 
 function mapLink(row: LinkRow): EntryLink {
@@ -699,6 +743,74 @@ export class SupabaseRepository implements Repository {
     if (patch.people !== undefined) row.people = patch.people
     if (Object.keys(row).length === 0) return
     const { error } = await this.client.from("npc_sheets").update(row).eq("entry_id", entryId)
+    this.fail(error)
+    const touched = await this.client.from("entries").update({ updated_at: new Date().toISOString() }).eq("id", entryId)
+    this.fail(touched.error)
+  }
+
+  async listCatalogSheets(campaignId: string) {
+    const listed = await this.client.from("catalog_sheets").select(CATALOG_COLUMNS).eq("campaign_id", campaignId)
+    this.fail(listed.error)
+    const sheets = ((listed.data ?? []) as CatalogSheetRow[]).map(mapCatalogSheet)
+    const entries = await this.client
+      .from("entries")
+      .select("id, campaign_id, section, body")
+      .eq("campaign_id", campaignId)
+      .in("section", ["afflictions", "locations", "misc"])
+    this.fail(entries.error)
+    const records = (entries.data ?? []) as { id: string; campaign_id: string; section: PanelSectionId; body: unknown }[]
+    const have = new Set(sheets.map((sheet) => sheet.entryId))
+    const missing = records.filter((entry) => !have.has(entry.id))
+    if (missing.length === 0) return sheets
+    const rows = missing.map((entry) => {
+      const sheet = catalogSheetFromEntry(
+        { id: entry.id, campaignId: entry.campaign_id, section: entry.section, body: asDoc(entry.body) },
+        new Date().toISOString(),
+      )
+      return catalogInsert(sheet)
+    })
+    const inserted = await this.client.from("catalog_sheets").insert(rows).select(CATALOG_COLUMNS)
+    if (inserted.error?.code === "23505") {
+      const again = await this.client.from("catalog_sheets").select(CATALOG_COLUMNS).eq("campaign_id", campaignId)
+      this.fail(again.error)
+      return ((again.data ?? []) as CatalogSheetRow[]).map(mapCatalogSheet)
+    }
+    this.fail(inserted.error)
+    return [...sheets, ...((inserted.data ?? []) as CatalogSheetRow[]).map(mapCatalogSheet)]
+  }
+
+  async createCatalogSheet(entryId: string) {
+    const existing = await this.client.from("catalog_sheets").select(CATALOG_COLUMNS).eq("entry_id", entryId).maybeSingle()
+    this.fail(existing.error)
+    if (existing.data) return mapCatalogSheet(existing.data as CatalogSheetRow)
+
+    const entry = await this.client.from("entries").select("id, campaign_id, section, body").eq("id", entryId).maybeSingle()
+    this.fail(entry.error)
+    const row = entry.data as { id: string; campaign_id: string; section: PanelSectionId; body: unknown } | null
+    if (!row) throw new DataError("That entry is gone.")
+    const sheet = catalogSheetFromEntry(
+      { id: row.id, campaignId: row.campaign_id, section: row.section, body: asDoc(row.body) },
+      new Date().toISOString(),
+    )
+    const inserted = await this.client.from("catalog_sheets").insert(catalogInsert(sheet)).select(CATALOG_COLUMNS).single()
+    if (inserted.error?.code === "23505") {
+      const again = await this.client.from("catalog_sheets").select(CATALOG_COLUMNS).eq("entry_id", entryId).single()
+      this.fail(again.error)
+      return mapCatalogSheet(again.data as CatalogSheetRow)
+    }
+    this.fail(inserted.error)
+    return mapCatalogSheet(inserted.data as CatalogSheetRow)
+  }
+
+  async updateCatalogSheet(entryId: string, patch: CatalogSheetPatch) {
+    const row: Record<string, unknown> = {}
+    if (patch.savingThrow !== undefined) row.saving_throw = patch.savingThrow
+    if (patch.damage !== undefined) row.damage = patch.damage
+    if (patch.place !== undefined) row.place = patch.place
+    if (patch.effect !== undefined) row.effect = patch.effect
+    if (patch.notes !== undefined) row.notes = patch.notes
+    if (Object.keys(row).length === 0) return
+    const { error } = await this.client.from("catalog_sheets").update(row).eq("entry_id", entryId)
     this.fail(error)
     const touched = await this.client.from("entries").update({ updated_at: new Date().toISOString() }).eq("id", entryId)
     this.fail(touched.error)
