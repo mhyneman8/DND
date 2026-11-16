@@ -206,8 +206,9 @@ export type StickyNote = {
   campaignId: string
   body: string
   characterId: string | null
+  sortIndex: number
   createdAt: string
   updatedAt: string
 }
 
-export type StickyNotePatch = Partial<Pick<StickyNote, "body" | "characterId">>
+export type StickyNotePatch = Partial<Pick<StickyNote, "body" | "characterId" | "sortIndex">>

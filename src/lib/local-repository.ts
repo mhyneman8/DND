@@ -27,6 +27,10 @@ type LocalDb = {
   stickyNotes: StickyNote[]
 }
 
+function compareStickyNotes(a: StickyNote, b: StickyNote) {
+  return a.sortIndex - b.sortIndex || b.createdAt.localeCompare(a.createdAt)
+}
+
 function alliancePeople(items: ListItem[], entryId: string): PcPerson[] {
   return items
     .filter((item) => item.entryId === entryId && item.listKey === "alliances")
@@ -157,6 +161,7 @@ function loadDb(): { db: LocalDb; migrated: boolean } {
               campaignId: note.campaignId,
               body: typeof note.body === "string" ? note.body : "",
               characterId: typeof note.characterId === "string" ? note.characterId : null,
+              sortIndex: typeof note.sortIndex === "number" && Number.isFinite(note.sortIndex) ? note.sortIndex : 0,
               createdAt: note.createdAt ?? now(),
               updatedAt: note.updatedAt ?? note.createdAt ?? now(),
             },
@@ -655,16 +660,18 @@ export class LocalRepository implements Repository {
     return this.db.stickyNotes
       .filter((note) => note.campaignId === campaignId)
       .map((note) => ({ ...note }))
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .sort(compareStickyNotes)
   }
 
   async createStickyNote(campaignId: string) {
     const timestamp = now()
+    const peers = this.db.stickyNotes.filter((item) => item.campaignId === campaignId)
     const note: StickyNote = {
       id: uid(),
       campaignId,
       body: "",
       characterId: null,
+      sortIndex: peers.length === 0 ? 0 : Math.min(...peers.map((item) => item.sortIndex)) - 1,
       createdAt: timestamp,
       updatedAt: timestamp,
     }
@@ -678,6 +685,7 @@ export class LocalRepository implements Repository {
     if (!note) throw new DataError("That note is gone.")
     if (patch.body !== undefined) note.body = patch.body
     if (patch.characterId !== undefined) note.characterId = patch.characterId
+    if (patch.sortIndex !== undefined) note.sortIndex = patch.sortIndex
     note.updatedAt = now()
     this.commit()
   }

@@ -134,11 +134,19 @@ function mapStoryItem(row: StoryItemRow): StoryItem {
   }
 }
 
+const STICKY_COLUMNS = "id, campaign_id, body, character_id, sort_index, created_at, updated_at"
+const STICKY_COLUMNS_PLAIN = "id, campaign_id, body, character_id, created_at, updated_at"
+
+function isMissingSortColumn(error: { code?: string; message: string }) {
+  return error.code === "42703" || error.code === "PGRST204" || error.message.includes("sort_index")
+}
+
 type StickyNoteRow = {
   id: string
   campaign_id: string
   body: string
   character_id: string | null
+  sort_index: number
   created_at: string
   updated_at: string
 }
@@ -149,6 +157,7 @@ function mapStickyNote(row: StickyNoteRow): StickyNote {
     campaignId: row.campaign_id,
     body: row.body ?? "",
     characterId: row.character_id,
+    sortIndex: typeof row.sort_index === "number" ? row.sort_index : 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -405,6 +414,7 @@ function mapLink(row: LinkRow): EntryLink {
 export class SupabaseRepository implements Repository {
   readonly mode = "supabase" as const
   private urls = new Map<string, { url: string; expires: number }>()
+  private sortColumn: boolean | null = null
   private client: SupabaseClient
 
   constructor(client: SupabaseClient) {
@@ -1028,9 +1038,19 @@ export class SupabaseRepository implements Repository {
   }
 
   async listStickyNotes(campaignId: string) {
+    if (await this.notesHaveSort()) {
+      const { data, error } = await this.client
+        .from("sticky_notes")
+        .select(STICKY_COLUMNS)
+        .eq("campaign_id", campaignId)
+        .order("sort_index", { ascending: true })
+        .order("created_at", { ascending: false })
+      this.fail(error)
+      return ((data ?? []) as StickyNoteRow[]).map(mapStickyNote)
+    }
     const { data, error } = await this.client
       .from("sticky_notes")
-      .select("id, campaign_id, body, character_id, created_at, updated_at")
+      .select(STICKY_COLUMNS_PLAIN)
       .eq("campaign_id", campaignId)
       .order("created_at", { ascending: false })
     this.fail(error)
@@ -1038,10 +1058,27 @@ export class SupabaseRepository implements Repository {
   }
 
   async createStickyNote(campaignId: string) {
+    if (await this.notesHaveSort()) {
+      const existing = await this.client
+        .from("sticky_notes")
+        .select("sort_index")
+        .eq("campaign_id", campaignId)
+        .order("sort_index", { ascending: true })
+        .limit(1)
+      this.fail(existing.error)
+      const lowest = (existing.data?.[0] as { sort_index: number } | undefined)?.sort_index
+      const { data, error } = await this.client
+        .from("sticky_notes")
+        .insert({ campaign_id: campaignId, body: "", sort_index: typeof lowest === "number" ? lowest - 1 : 0 })
+        .select(STICKY_COLUMNS)
+        .single()
+      this.fail(error)
+      return mapStickyNote(data as StickyNoteRow)
+    }
     const { data, error } = await this.client
       .from("sticky_notes")
       .insert({ campaign_id: campaignId, body: "" })
-      .select("id, campaign_id, body, character_id, created_at, updated_at")
+      .select(STICKY_COLUMNS_PLAIN)
       .single()
     this.fail(error)
     return mapStickyNote(data as StickyNoteRow)
@@ -1051,9 +1088,18 @@ export class SupabaseRepository implements Repository {
     const row: Record<string, unknown> = {}
     if (patch.body !== undefined) row.body = patch.body
     if (patch.characterId !== undefined) row.character_id = patch.characterId
+    if (patch.sortIndex !== undefined && (await this.notesHaveSort())) row.sort_index = patch.sortIndex
     if (Object.keys(row).length === 0) return
     const { error } = await this.client.from("sticky_notes").update(row).eq("id", id)
     this.fail(error)
+  }
+
+  private async notesHaveSort() {
+    if (this.sortColumn !== null) return this.sortColumn
+    const { error } = await this.client.from("sticky_notes").select("sort_index").limit(0)
+    if (error && !isMissingSortColumn(error)) this.fail(error)
+    this.sortColumn = !error
+    return this.sortColumn
   }
 
   async deleteStickyNote(id: string) {

@@ -206,11 +206,14 @@ create table if not exists public.sticky_notes (
   user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
   body text not null default '',
   character_id uuid references public.entries (id) on delete set null,
+  sort_index integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
 create index if not exists sticky_notes_campaign_idx on public.sticky_notes (campaign_id);
+
+alter table public.sticky_notes add column if not exists sort_index integer not null default 0;
 
 drop trigger if exists campaigns_updated_at on public.campaigns;
 create trigger campaigns_updated_at
