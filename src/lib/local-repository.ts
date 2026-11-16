@@ -2,8 +2,12 @@ import { idbDelete, idbGet, idbSet } from "./idb.ts"
 import { extensionFor, readDataUrl, validateImage } from "./images.ts"
 import { now, uid } from "./ids.ts"
 import { DataError, type CreateEntryInput, type CreateLinkInput, type CreateListItemInput, type CreateStoryItemInput, type Repository, type SignUpResult } from "./repository.ts"
+import { catalogSheetFromEntry, normalizeCatalogSheet } from "./catalog.ts"
+import { monsterSheetFromEntry, normalizeMonsterSheet } from "./monster.ts"
+import { normalizeNpcSheet, npcSheetFromEntry } from "./npc.ts"
+import { normalizePcSheet, pcSheetFromEntry } from "./pc.ts"
 import { asDoc, emptyDoc } from "./text.ts"
-import type { Campaign, CampaignPatch, Entry, EntryLink, EntryPatch, ListItem, PlotSubsection, PlotSubsectionPatch, StoryItem, StoryItemPatch } from "./types.ts"
+import type { Campaign, CampaignPatch, CatalogSheet, CatalogSheetPatch, Entry, EntryLink, EntryPatch, ListItem, MonsterSheet, MonsterSheetPatch, NpcSheet, NpcSheetPatch, PcPerson, PcSheet, PcSheetPatch, PlotSubsection, PlotSubsectionPatch, StickyNote, StickyNotePatch, StoryItem, StoryItemPatch } from "./types.ts"
 
 const STORAGE_KEY = "dm-table:v1"
 
@@ -16,10 +20,52 @@ type LocalDb = {
   links: EntryLink[]
   plotSubsections: PlotSubsection[]
   storyItems: StoryItem[]
+  pcSheets: PcSheet[]
+  npcSheets: NpcSheet[]
+  catalogSheets: CatalogSheet[]
+  monsterSheets: MonsterSheet[]
+  stickyNotes: StickyNote[]
+}
+
+function compareStickyNotes(a: StickyNote, b: StickyNote) {
+  return a.sortIndex - b.sortIndex || b.createdAt.localeCompare(a.createdAt)
+}
+
+function alliancePeople(items: ListItem[], entryId: string): PcPerson[] {
+  return items
+    .filter((item) => item.entryId === entryId && item.listKey === "alliances")
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .map((item) => ({ id: item.id, label: item.label }))
+}
+
+function applyMonsterPatch(sheet: MonsterSheet, patch: MonsterSheetPatch) {
+  if (patch.size !== undefined) sheet.size = patch.size
+  if (patch.creatureType !== undefined) sheet.creatureType = patch.creatureType
+  if (patch.alignment !== undefined) sheet.alignment = patch.alignment
+  if (patch.armorClass !== undefined) sheet.armorClass = patch.armorClass
+  if (patch.hitPoints !== undefined) sheet.hitPoints = patch.hitPoints
+  if (patch.speed !== undefined) sheet.speed = patch.speed
+  if (patch.abilities !== undefined) sheet.abilities = { ...patch.abilities }
+  if (patch.savingThrows !== undefined) sheet.savingThrows = patch.savingThrows
+  if (patch.skills !== undefined) sheet.skills = patch.skills
+  if (patch.damageVulnerabilities !== undefined) sheet.damageVulnerabilities = patch.damageVulnerabilities
+  if (patch.damageResistances !== undefined) sheet.damageResistances = patch.damageResistances
+  if (patch.damageImmunities !== undefined) sheet.damageImmunities = patch.damageImmunities
+  if (patch.conditionImmunities !== undefined) sheet.conditionImmunities = patch.conditionImmunities
+  if (patch.senses !== undefined) sheet.senses = patch.senses
+  if (patch.languages !== undefined) sheet.languages = patch.languages
+  if (patch.challenge !== undefined) sheet.challenge = patch.challenge
+  if (patch.traits !== undefined) sheet.traits = patch.traits.map((line) => ({ ...line }))
+  if (patch.actions !== undefined) sheet.actions = patch.actions.map((line) => ({ ...line }))
+  if (patch.bonusActions !== undefined) sheet.bonusActions = patch.bonusActions.map((line) => ({ ...line }))
+  if (patch.reactions !== undefined) sheet.reactions = patch.reactions.map((line) => ({ ...line }))
+  if (patch.legendaryActions !== undefined) sheet.legendaryActions = patch.legendaryActions.map((line) => ({ ...line }))
+  if (patch.notes !== undefined) sheet.notes = patch.notes
+  if (patch.source !== undefined) sheet.source = patch.source
 }
 
 function emptyDb(): LocalDb {
-  return { campaigns: [], entries: [], listItems: [], links: [], plotSubsections: [], storyItems: [] }
+  return { campaigns: [], entries: [], listItems: [], links: [], plotSubsections: [], storyItems: [], pcSheets: [], npcSheets: [], catalogSheets: [], monsterSheets: [], stickyNotes: [] }
 }
 
 function adoptLegacyStoryBeats(db: LocalDb) {
@@ -47,6 +93,7 @@ function adoptLegacyStoryBeats(db: LocalDb) {
       name: entry.name,
       sessionDate: null,
       body: asDoc(entry.body),
+      imagePath: entry.imagePath,
       resolved: false,
       showOnHome: false,
       createdAt: entry.createdAt,
@@ -85,10 +132,41 @@ function loadDb(): { db: LocalDb; migrated: boolean } {
         storyItems: (parsed.storyItems ?? []).map((item) => ({
           ...item,
           body: asDoc(item.body),
+          imagePath: item.imagePath ?? null,
           sessionDate: item.sessionDate ?? null,
           resolved: item.resolved ?? false,
           showOnHome: item.showOnHome ?? false,
         })),
+        pcSheets: (parsed.pcSheets ?? []).flatMap((sheet) => {
+          const normalized = normalizePcSheet(sheet)
+          return normalized ? [normalized] : []
+        }),
+        npcSheets: (parsed.npcSheets ?? []).flatMap((sheet) => {
+          const normalized = normalizeNpcSheet(sheet)
+          return normalized ? [normalized] : []
+        }),
+        catalogSheets: (parsed.catalogSheets ?? []).flatMap((sheet) => {
+          const normalized = normalizeCatalogSheet(sheet)
+          return normalized ? [normalized] : []
+        }),
+        monsterSheets: (parsed.monsterSheets ?? []).flatMap((sheet) => {
+          const normalized = normalizeMonsterSheet(sheet)
+          return normalized ? [normalized] : []
+        }),
+        stickyNotes: (parsed.stickyNotes ?? []).flatMap((note) => {
+          if (!note?.id || !note.campaignId) return []
+          return [
+            {
+              id: note.id,
+              campaignId: note.campaignId,
+              body: typeof note.body === "string" ? note.body : "",
+              characterId: typeof note.characterId === "string" ? note.characterId : null,
+              sortIndex: typeof note.sortIndex === "number" && Number.isFinite(note.sortIndex) ? note.sortIndex : 0,
+              createdAt: note.createdAt ?? now(),
+              updatedAt: note.updatedAt ?? note.createdAt ?? now(),
+            },
+          ]
+        }),
       },
     }
   } catch {
@@ -162,13 +240,20 @@ export class LocalRepository implements Repository {
 
   async deleteCampaign(id: string) {
     const entryIds = new Set(this.db.entries.filter((entry) => entry.campaignId === id).map((entry) => entry.id))
-    const paths = this.db.entries.filter((entry) => entry.campaignId === id && entry.imagePath).map((entry) => entry.imagePath as string)
+    const entryPaths = this.db.entries.filter((entry) => entry.campaignId === id && entry.imagePath).map((entry) => entry.imagePath as string)
+    const storyPaths = this.db.storyItems.filter((item) => item.campaignId === id && item.imagePath).map((item) => item.imagePath as string)
+    const paths = [...entryPaths, ...storyPaths]
     this.db.campaigns = this.db.campaigns.filter((campaign) => campaign.id !== id)
     this.db.entries = this.db.entries.filter((entry) => entry.campaignId !== id)
     this.db.listItems = this.db.listItems.filter((item) => !entryIds.has(item.entryId))
     this.db.links = this.db.links.filter((link) => link.campaignId !== id)
     this.db.plotSubsections = this.db.plotSubsections.filter((item) => item.campaignId !== id)
     this.db.storyItems = this.db.storyItems.filter((item) => item.campaignId !== id)
+    this.db.pcSheets = this.db.pcSheets.filter((item) => item.campaignId !== id)
+    this.db.npcSheets = this.db.npcSheets.filter((item) => item.campaignId !== id)
+    this.db.catalogSheets = this.db.catalogSheets.filter((item) => item.campaignId !== id)
+    this.db.monsterSheets = this.db.monsterSheets.filter((item) => item.campaignId !== id)
+    this.db.stickyNotes = this.db.stickyNotes.filter((item) => item.campaignId !== id)
     this.commit()
     await Promise.all(paths.map((path) => idbDelete(path).catch(() => undefined)))
   }
@@ -217,6 +302,13 @@ export class LocalRepository implements Repository {
       item.linkedEntryId === id ? { ...item, linkedEntryId: null } : item,
     )
     this.db.links = this.db.links.filter((link) => link.sourceEntryId !== id && link.targetEntryId !== id)
+    this.db.pcSheets = this.db.pcSheets.filter((sheet) => sheet.entryId !== id)
+    this.db.npcSheets = this.db.npcSheets.filter((sheet) => sheet.entryId !== id)
+    this.db.catalogSheets = this.db.catalogSheets.filter((sheet) => sheet.entryId !== id)
+    this.db.monsterSheets = this.db.monsterSheets.filter((sheet) => sheet.entryId !== id)
+    this.db.stickyNotes = this.db.stickyNotes.map((note) =>
+      note.characterId === id ? { ...note, characterId: null } : note,
+    )
     this.commit()
     if (entry?.imagePath) await idbDelete(entry.imagePath).catch(() => undefined)
   }
@@ -318,9 +410,11 @@ export class LocalRepository implements Repository {
   }
 
   async deletePlotSubsection(id: string) {
+    const paths = this.db.storyItems.filter((item) => item.subsectionId === id && item.imagePath).map((item) => item.imagePath as string)
     this.db.plotSubsections = this.db.plotSubsections.filter((item) => item.id !== id)
     this.db.storyItems = this.db.storyItems.filter((item) => item.subsectionId !== id)
     this.commit()
+    await Promise.all(paths.map((path) => idbDelete(path).catch(() => undefined)))
   }
 
   async listStoryItems(campaignId: string) {
@@ -340,6 +434,7 @@ export class LocalRepository implements Repository {
       name: input.name.trim(),
       sessionDate: input.sessionDate,
       body: emptyDoc(),
+      imagePath: null,
       resolved: false,
       showOnHome: false,
       createdAt: timestamp,
@@ -356,6 +451,7 @@ export class LocalRepository implements Repository {
     if (patch.name !== undefined) item.name = patch.name.trim()
     if (patch.sessionDate !== undefined) item.sessionDate = patch.sessionDate
     if (patch.body !== undefined) item.body = patch.body
+    if (patch.imagePath !== undefined) item.imagePath = patch.imagePath
     if (patch.resolved !== undefined) item.resolved = patch.resolved
     if (patch.showOnHome !== undefined) item.showOnHome = patch.showOnHome
     item.updatedAt = now()
@@ -363,7 +459,239 @@ export class LocalRepository implements Repository {
   }
 
   async deleteStoryItem(id: string) {
-    this.db.storyItems = this.db.storyItems.filter((item) => item.id !== id)
+    const item = this.db.storyItems.find((entry) => entry.id === id)
+    this.db.storyItems = this.db.storyItems.filter((entry) => entry.id !== id)
+    this.commit()
+    if (item?.imagePath) await idbDelete(item.imagePath).catch(() => undefined)
+  }
+
+  async listPcSheets(campaignId: string) {
+    let changed = false
+    const characters = this.db.entries.filter((entry) => entry.campaignId === campaignId && entry.section === "pcs")
+    for (const entry of characters) {
+      if (this.db.pcSheets.some((sheet) => sheet.entryId === entry.id)) continue
+      this.db.pcSheets.push(pcSheetFromEntry(entry, alliancePeople(this.db.listItems, entry.id), entry.updatedAt))
+      changed = true
+    }
+    if (changed) this.commit()
+    return this.db.pcSheets
+      .filter((sheet) => sheet.campaignId === campaignId)
+      .flatMap((sheet) => {
+        const normalized = normalizePcSheet(sheet)
+        return normalized ? [normalized] : []
+      })
+  }
+
+  async createPcSheet(entryId: string) {
+    const existing = this.db.pcSheets.find((sheet) => sheet.entryId === entryId)
+    if (existing) {
+      const normalized = normalizePcSheet(existing)
+      if (normalized) return normalized
+    }
+    const entry = this.db.entries.find((item) => item.id === entryId)
+    if (!entry) throw new DataError("That character is gone.")
+    const sheet = pcSheetFromEntry(entry, alliancePeople(this.db.listItems, entry.id), now())
+    this.db.pcSheets.push(sheet)
+    this.commit()
+    return normalizePcSheet(sheet) ?? sheet
+  }
+
+  async updatePcSheet(entryId: string, patch: PcSheetPatch) {
+    const sheet = this.db.pcSheets.find((item) => item.entryId === entryId)
+    if (!sheet) throw new DataError("That character sheet is gone.")
+    if (patch.className !== undefined) sheet.className = patch.className
+    if (patch.subclass !== undefined) sheet.subclass = patch.subclass
+    if (patch.sheetUrl !== undefined) sheet.sheetUrl = patch.sheetUrl
+    if (patch.bio !== undefined) sheet.bio = patch.bio
+    if (patch.subclassNotes !== undefined) sheet.subclassNotes = patch.subclassNotes
+    if (patch.people !== undefined) sheet.people = patch.people.map((person) => ({ ...person }))
+    if (patch.events !== undefined) sheet.events = patch.events.map((event) => ({ ...event }))
+    if (patch.objectives !== undefined) sheet.objectives = patch.objectives.map((item) => ({ ...item }))
+    sheet.updatedAt = now()
+    const entry = this.db.entries.find((item) => item.id === entryId)
+    if (entry) entry.updatedAt = sheet.updatedAt
+    this.commit()
+  }
+
+  async listNpcSheets(campaignId: string) {
+    let changed = false
+    const characters = this.db.entries.filter((entry) => entry.campaignId === campaignId && entry.section === "npcs")
+    for (const entry of characters) {
+      if (this.db.npcSheets.some((sheet) => sheet.entryId === entry.id)) continue
+      this.db.npcSheets.push(npcSheetFromEntry(entry, alliancePeople(this.db.listItems, entry.id), entry.updatedAt))
+      changed = true
+    }
+    if (changed) this.commit()
+    return this.db.npcSheets
+      .filter((sheet) => sheet.campaignId === campaignId)
+      .flatMap((sheet) => {
+        const normalized = normalizeNpcSheet(sheet)
+        return normalized ? [normalized] : []
+      })
+  }
+
+  async createNpcSheet(entryId: string) {
+    const existing = this.db.npcSheets.find((sheet) => sheet.entryId === entryId)
+    if (existing) {
+      const normalized = normalizeNpcSheet(existing)
+      if (normalized) return normalized
+    }
+    const entry = this.db.entries.find((item) => item.id === entryId)
+    if (!entry) throw new DataError("That character is gone.")
+    const sheet = npcSheetFromEntry(entry, alliancePeople(this.db.listItems, entry.id), now())
+    this.db.npcSheets.push(sheet)
+    this.commit()
+    return normalizeNpcSheet(sheet) ?? sheet
+  }
+
+  async updateNpcSheet(entryId: string, patch: NpcSheetPatch) {
+    const sheet = this.db.npcSheets.find((item) => item.entryId === entryId)
+    if (!sheet) throw new DataError("That character sheet is gone.")
+    if (patch.description !== undefined) sheet.description = patch.description
+    if (patch.motivations !== undefined) sheet.motivations = patch.motivations
+    if (patch.affinity !== undefined) sheet.affinity = patch.affinity
+    if (patch.hostileAt !== undefined) sheet.hostileAt = patch.hostileAt
+    if (patch.friendlyAt !== undefined) sheet.friendlyAt = patch.friendlyAt
+    if (patch.people !== undefined) sheet.people = patch.people.map((person) => ({ ...person }))
+    sheet.updatedAt = now()
+    const entry = this.db.entries.find((item) => item.id === entryId)
+    if (entry) entry.updatedAt = sheet.updatedAt
+    this.commit()
+  }
+
+  async listCatalogSheets(campaignId: string) {
+    let changed = false
+    const records = this.db.entries.filter(
+      (entry) => entry.campaignId === campaignId && (entry.section === "afflictions" || entry.section === "locations" || entry.section === "misc"),
+    )
+    for (const entry of records) {
+      if (this.db.catalogSheets.some((sheet) => sheet.entryId === entry.id)) continue
+      this.db.catalogSheets.push(catalogSheetFromEntry(entry, entry.updatedAt))
+      changed = true
+    }
+    if (changed) this.commit()
+    return this.db.catalogSheets
+      .filter((sheet) => sheet.campaignId === campaignId)
+      .flatMap((sheet) => {
+        const normalized = normalizeCatalogSheet(sheet)
+        return normalized ? [normalized] : []
+      })
+  }
+
+  async createCatalogSheet(entryId: string) {
+    const existing = this.db.catalogSheets.find((sheet) => sheet.entryId === entryId)
+    if (existing) {
+      const normalized = normalizeCatalogSheet(existing)
+      if (normalized) return normalized
+    }
+    const entry = this.db.entries.find((item) => item.id === entryId)
+    if (!entry) throw new DataError("That entry is gone.")
+    const sheet = catalogSheetFromEntry(entry, now())
+    this.db.catalogSheets.push(sheet)
+    this.commit()
+    return normalizeCatalogSheet(sheet) ?? sheet
+  }
+
+  async updateCatalogSheet(entryId: string, patch: CatalogSheetPatch) {
+    const sheet = this.db.catalogSheets.find((item) => item.entryId === entryId)
+    if (!sheet) throw new DataError("That sheet is gone.")
+    if (patch.savingThrow !== undefined) sheet.savingThrow = patch.savingThrow
+    if (patch.damage !== undefined) sheet.damage = patch.damage
+    if (patch.place !== undefined) sheet.place = patch.place
+    if (patch.effect !== undefined) sheet.effect = patch.effect
+    if (patch.notes !== undefined) sheet.notes = patch.notes
+    sheet.updatedAt = now()
+    const entry = this.db.entries.find((item) => item.id === entryId)
+    if (entry) entry.updatedAt = sheet.updatedAt
+    this.commit()
+  }
+
+  async listMonsterSheets(campaignId: string) {
+    let changed = false
+    const records = this.db.entries.filter((entry) => entry.campaignId === campaignId && entry.section === "monsters")
+    for (const entry of records) {
+      if (this.db.monsterSheets.some((sheet) => sheet.entryId === entry.id)) continue
+      this.db.monsterSheets.push(monsterSheetFromEntry(entry, entry.updatedAt))
+      changed = true
+    }
+    if (changed) this.commit()
+    return this.db.monsterSheets
+      .filter((sheet) => sheet.campaignId === campaignId)
+      .flatMap((sheet) => {
+        const normalized = normalizeMonsterSheet(sheet)
+        return normalized ? [normalized] : []
+      })
+  }
+
+  async createMonsterSheet(entryId: string) {
+    const existing = this.db.monsterSheets.find((sheet) => sheet.entryId === entryId)
+    if (existing) {
+      const normalized = normalizeMonsterSheet(existing)
+      if (normalized) return normalized
+    }
+    const entry = this.db.entries.find((item) => item.id === entryId)
+    if (!entry) throw new DataError("That creature is gone.")
+    const sheet = monsterSheetFromEntry(entry, now())
+    this.db.monsterSheets.push(sheet)
+    this.commit()
+    return normalizeMonsterSheet(sheet) ?? sheet
+  }
+
+  async updateMonsterSheet(entryId: string, patch: MonsterSheetPatch) {
+    const sheet = this.db.monsterSheets.find((item) => item.entryId === entryId)
+    if (!sheet) throw new DataError("That stat block is gone.")
+    applyMonsterPatch(sheet, patch)
+    sheet.updatedAt = now()
+    const entry = this.db.entries.find((item) => item.id === entryId)
+    if (entry) entry.updatedAt = sheet.updatedAt
+    this.commit()
+  }
+
+  async listStickyNotes(campaignId: string) {
+    const entryIds = new Set(this.db.entries.filter((entry) => entry.campaignId === campaignId).map((entry) => entry.id))
+    let changed = false
+    for (const note of this.db.stickyNotes) {
+      if (note.campaignId === campaignId && note.characterId && !entryIds.has(note.characterId)) {
+        note.characterId = null
+        changed = true
+      }
+    }
+    if (changed) this.commit()
+    return this.db.stickyNotes
+      .filter((note) => note.campaignId === campaignId)
+      .map((note) => ({ ...note }))
+      .sort(compareStickyNotes)
+  }
+
+  async createStickyNote(campaignId: string) {
+    const timestamp = now()
+    const peers = this.db.stickyNotes.filter((item) => item.campaignId === campaignId)
+    const note: StickyNote = {
+      id: uid(),
+      campaignId,
+      body: "",
+      characterId: null,
+      sortIndex: peers.length === 0 ? 0 : Math.min(...peers.map((item) => item.sortIndex)) - 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    this.db.stickyNotes.push(note)
+    this.commit()
+    return { ...note }
+  }
+
+  async updateStickyNote(id: string, patch: StickyNotePatch) {
+    const note = this.db.stickyNotes.find((item) => item.id === id)
+    if (!note) throw new DataError("That note is gone.")
+    if (patch.body !== undefined) note.body = patch.body
+    if (patch.characterId !== undefined) note.characterId = patch.characterId
+    if (patch.sortIndex !== undefined) note.sortIndex = patch.sortIndex
+    note.updatedAt = now()
+    this.commit()
+  }
+
+  async deleteStickyNote(id: string) {
+    this.db.stickyNotes = this.db.stickyNotes.filter((note) => note.id !== id)
     this.commit()
   }
 

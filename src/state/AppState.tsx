@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { catalogKindFor } from "../lib/catalog.ts"
 import { createRepository } from "../lib/create-repository.ts"
 import type { Repository } from "../lib/repository.ts"
 import { isSectionId } from "../lib/sections.ts"
@@ -6,14 +7,24 @@ import { emptyDoc, messageOf } from "../lib/text.ts"
 import type {
   Campaign,
   CampaignPatch,
+  CatalogSheet,
+  CatalogSheetPatch,
   Entry,
   EntryLink,
   EntryPatch,
   ListItem,
+  MonsterSheet,
+  MonsterSheetPatch,
+  NpcSheet,
+  NpcSheetPatch,
   PanelSectionId,
+  PcSheet,
+  PcSheetPatch,
   PlotSubsection,
   PlotSubsectionPatch,
   SectionId,
+  StickyNote,
+  StickyNotePatch,
   StoryItem,
   StoryItemPatch,
 } from "../lib/types.ts"
@@ -35,6 +46,12 @@ type AppContextValue = {
   listItems: ListItem[]
   plotSubsections: PlotSubsection[]
   storyItems: StoryItem[]
+  pcSheets: PcSheet[]
+  npcSheets: NpcSheet[]
+  catalogSheets: CatalogSheet[]
+  monsterSheets: MonsterSheet[]
+  stickyNotes: StickyNote[]
+  notesOpen: boolean
   campaignsLoaded: boolean
   entriesLoadedFor: string | null
   activeCampaignId: string | null
@@ -65,6 +82,18 @@ type AppContextValue = {
   createStoryItem: (input: { subsectionId: string; kind: StoryItem["kind"]; name: string; sessionDate: string | null }) => Promise<StoryItem>
   updateStoryItem: (id: string, patch: StoryItemPatch) => Promise<void>
   deleteStoryItem: (id: string) => Promise<void>
+  ensurePcSheet: (entryId: string) => Promise<void>
+  updatePcSheet: (entryId: string, recipe: (sheet: PcSheet) => PcSheetPatch) => Promise<void>
+  ensureNpcSheet: (entryId: string) => Promise<void>
+  updateNpcSheet: (entryId: string, recipe: (sheet: NpcSheet) => NpcSheetPatch) => Promise<void>
+  ensureCatalogSheet: (entryId: string) => Promise<void>
+  updateCatalogSheet: (entryId: string, recipe: (sheet: CatalogSheet) => CatalogSheetPatch) => Promise<void>
+  ensureMonsterSheet: (entryId: string) => Promise<void>
+  updateMonsterSheet: (entryId: string, recipe: (sheet: MonsterSheet) => MonsterSheetPatch) => Promise<void>
+  setNotesOpen: (open: boolean) => void
+  createStickyNote: () => Promise<StickyNote>
+  updateStickyNote: (id: string, patch: StickyNotePatch) => Promise<void>
+  deleteStickyNote: (id: string) => Promise<void>
   uploadImage: (file: File) => Promise<string>
   imageUrl: (path: string) => Promise<string | null>
   deleteStoredImage: (path: string) => Promise<void>
@@ -84,6 +113,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [listItems, setListItems] = useState<ListItem[]>([])
   const [plotSubsections, setPlotSubsections] = useState<PlotSubsection[]>([])
   const [storyItems, setStoryItems] = useState<StoryItem[]>([])
+  const pcSheetsRef = useRef<PcSheet[]>([])
+  const [pcSheets, setPcSheetsState] = useState<PcSheet[]>([])
+  const setPcSheets = useCallback((update: PcSheet[] | ((current: PcSheet[]) => PcSheet[])) => {
+    const next = typeof update === "function" ? update(pcSheetsRef.current) : update
+    pcSheetsRef.current = next
+    setPcSheetsState(next)
+  }, [])
+  const npcSheetsRef = useRef<NpcSheet[]>([])
+  const [npcSheets, setNpcSheetsState] = useState<NpcSheet[]>([])
+  const setNpcSheets = useCallback((update: NpcSheet[] | ((current: NpcSheet[]) => NpcSheet[])) => {
+    const next = typeof update === "function" ? update(npcSheetsRef.current) : update
+    npcSheetsRef.current = next
+    setNpcSheetsState(next)
+  }, [])
+  const catalogSheetsRef = useRef<CatalogSheet[]>([])
+  const [catalogSheets, setCatalogSheetsState] = useState<CatalogSheet[]>([])
+  const setCatalogSheets = useCallback((update: CatalogSheet[] | ((current: CatalogSheet[]) => CatalogSheet[])) => {
+    const next = typeof update === "function" ? update(catalogSheetsRef.current) : update
+    catalogSheetsRef.current = next
+    setCatalogSheetsState(next)
+  }, [])
+  const monsterSheetsRef = useRef<MonsterSheet[]>([])
+  const [monsterSheets, setMonsterSheetsState] = useState<MonsterSheet[]>([])
+  const setMonsterSheets = useCallback((update: MonsterSheet[] | ((current: MonsterSheet[]) => MonsterSheet[])) => {
+    const next = typeof update === "function" ? update(monsterSheetsRef.current) : update
+    monsterSheetsRef.current = next
+    setMonsterSheetsState(next)
+  }, [])
+  const [stickyNotes, setStickyNotes] = useState<StickyNote[]>([])
+  const [notesOpen, setNotesOpen] = useState(false)
   const [campaignsLoaded, setCampaignsLoaded] = useState(false)
   const [entriesLoadedFor, setEntriesLoadedFor] = useState<string | null>(null)
   const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null)
@@ -130,6 +189,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setListItems([])
       setPlotSubsections([])
       setStoryItems([])
+      setPcSheets([])
+      setNpcSheets([])
+      setCatalogSheets([])
+      setMonsterSheets([])
+      setStickyNotes([])
+      setNotesOpen(false)
       setCampaignsLoaded(false)
       setActiveCampaignId(null)
       return
@@ -159,7 +224,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [authReady, email, repo, report])
+  }, [authReady, email, repo, report, setPcSheets, setNpcSheets, setCatalogSheets, setMonsterSheets])
 
   useEffect(() => {
     if (status !== "ready" || !activeCampaignId) {
@@ -168,6 +233,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setLinks([])
         setPlotSubsections([])
         setStoryItems([])
+        setPcSheets([])
+        setNpcSheets([])
+        setCatalogSheets([])
+        setMonsterSheets([])
+        setStickyNotes([])
         setEntriesLoadedFor(null)
       }
       return
@@ -178,13 +248,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setEntriesLoadedFor(null)
     setPlotSubsections([])
     setStoryItems([])
+    setPcSheets([])
+    setNpcSheets([])
+    setCatalogSheets([])
+    setMonsterSheets([])
+    setStickyNotes([])
     void Promise.all([
       repo.listEntries(campaignId),
       repo.listLinks(campaignId),
       repo.listPlotSubsections(campaignId),
       repo.listStoryItems(campaignId),
+      repo.listPcSheets(campaignId),
+      repo.listNpcSheets(campaignId),
+      repo.listCatalogSheets(campaignId),
+      repo.listMonsterSheets(campaignId),
+      repo.listStickyNotes(campaignId),
     ])
-      .then(([nextEntries, nextLinks, nextSubsections, nextStories]) => {
+      .then(([nextEntries, nextLinks, nextSubsections, nextStories, nextSheets, nextNpcSheets, nextCatalogSheets, nextMonsterSheets, nextNotes]) => {
         if (cancelled) return
         setEntries((current) => {
           const extras = current.filter(
@@ -210,6 +290,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
           )
           return [...nextStories, ...extras]
         })
+        setPcSheets((current) => {
+          const extras = current.filter(
+            (sheet) => sheet.campaignId === campaignId && !nextSheets.some((row) => row.entryId === sheet.entryId),
+          )
+          return [...nextSheets, ...extras]
+        })
+        setNpcSheets((current) => {
+          const extras = current.filter(
+            (sheet) => sheet.campaignId === campaignId && !nextNpcSheets.some((row) => row.entryId === sheet.entryId),
+          )
+          return [...nextNpcSheets, ...extras]
+        })
+        setCatalogSheets((current) => {
+          const extras = current.filter(
+            (sheet) => sheet.campaignId === campaignId && !nextCatalogSheets.some((row) => row.entryId === sheet.entryId),
+          )
+          return [...nextCatalogSheets, ...extras]
+        })
+        setMonsterSheets((current) => {
+          const extras = current.filter(
+            (sheet) => sheet.campaignId === campaignId && !nextMonsterSheets.some((row) => row.entryId === sheet.entryId),
+          )
+          return [...nextMonsterSheets, ...extras]
+        })
+        setStickyNotes((current) => {
+          const extras = current.filter(
+            (note) => note.campaignId === campaignId && !nextNotes.some((row) => row.id === note.id),
+          )
+          return [...nextNotes, ...extras]
+        })
         setEntriesLoadedFor(campaignId)
       })
       .catch((caught: unknown) => {
@@ -220,11 +330,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [status, activeCampaignId, repo, report])
+  }, [status, activeCampaignId, repo, report, setPcSheets, setNpcSheets, setCatalogSheets, setMonsterSheets])
 
   useEffect(() => {
     setActiveEntryId(null)
     setListItems([])
+    setNotesOpen(false)
   }, [activeCampaignId])
 
   useEffect(() => {
@@ -347,10 +458,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
         body: emptyDoc(),
       })
       setEntries((current) => [...current, entry])
+      if (entry.section === "pcs") {
+        const sheet = await repo.createPcSheet(entry.id)
+        if (campaignIdRef.current === entry.campaignId) {
+          setPcSheets((current) => (current.some((item) => item.entryId === sheet.entryId) ? current : [...current, sheet]))
+        }
+      }
+      if (entry.section === "npcs") {
+        const sheet = await repo.createNpcSheet(entry.id)
+        if (campaignIdRef.current === entry.campaignId) {
+          setNpcSheets((current) => (current.some((item) => item.entryId === sheet.entryId) ? current : [...current, sheet]))
+        }
+      }
+      if (catalogKindFor(entry.section)) {
+        const sheet = await repo.createCatalogSheet(entry.id)
+        if (campaignIdRef.current === entry.campaignId) {
+          setCatalogSheets((current) => (current.some((item) => item.entryId === sheet.entryId) ? current : [...current, sheet]))
+        }
+      }
+      if (entry.section === "monsters") {
+        const sheet = await repo.createMonsterSheet(entry.id)
+        if (campaignIdRef.current === entry.campaignId) {
+          setMonsterSheets((current) => (current.some((item) => item.entryId === sheet.entryId) ? current : [...current, sheet]))
+        }
+      }
       setEntriesLoadedFor(activeCampaignId)
       return entry
     },
-    [activeCampaignId, repo],
+    [activeCampaignId, repo, setPcSheets, setNpcSheets, setCatalogSheets, setMonsterSheets],
   )
 
   const updateEntry = useCallback(
@@ -382,12 +517,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
             .filter((item) => item.entryId !== id)
             .map((item) => (item.linkedEntryId === id ? { ...item, linkedEntryId: null } : item)),
         )
+        setPcSheets((current) => current.filter((sheet) => sheet.entryId !== id))
+        setNpcSheets((current) => current.filter((sheet) => sheet.entryId !== id))
+        setCatalogSheets((current) => current.filter((sheet) => sheet.entryId !== id))
+        setMonsterSheets((current) => current.filter((sheet) => sheet.entryId !== id))
+        setStickyNotes((current) => current.map((note) => (note.characterId === id ? { ...note, characterId: null } : note)))
         setActiveEntryId((current) => (current === id ? null : current))
       } catch (caught) {
         report(caught)
       }
     },
-    [repo, report],
+    [repo, report, setPcSheets, setNpcSheets, setCatalogSheets, setMonsterSheets],
   )
 
   const createItem = useCallback(
@@ -537,6 +677,169 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [repo, report],
   )
 
+  const ensurePcSheet = useCallback(
+    async (entryId: string) => {
+      try {
+        const sheet = await repo.createPcSheet(entryId)
+        if (campaignIdRef.current !== sheet.campaignId) return
+        setPcSheets((current) => (current.some((item) => item.entryId === sheet.entryId) ? current : [...current, sheet]))
+      } catch (caught) {
+        report(caught)
+      }
+    },
+    [repo, report, setPcSheets],
+  )
+
+  const updatePcSheet = useCallback(
+    async (entryId: string, recipe: (sheet: PcSheet) => PcSheetPatch) => {
+      const current = pcSheetsRef.current.find((sheet) => sheet.entryId === entryId)
+      if (!current) return
+      const patch = recipe(current)
+      if (Object.keys(patch).length === 0) return
+      const updatedAt = new Date().toISOString()
+      const nextSheet = { ...current, ...patch, updatedAt }
+      setPcSheets((sheets) => sheets.map((sheet) => (sheet.entryId === entryId ? nextSheet : sheet)))
+      setEntries((rows) => rows.map((entry) => (entry.id === entryId ? { ...entry, updatedAt } : entry)))
+      try {
+        await queue(`pc:${entryId}`, () => repo.updatePcSheet(entryId, patch))
+      } catch (caught) {
+        report(caught)
+      }
+    },
+    [queue, repo, report, setPcSheets],
+  )
+
+  const ensureNpcSheet = useCallback(
+    async (entryId: string) => {
+      try {
+        const sheet = await repo.createNpcSheet(entryId)
+        if (campaignIdRef.current !== sheet.campaignId) return
+        setNpcSheets((current) => (current.some((item) => item.entryId === sheet.entryId) ? current : [...current, sheet]))
+      } catch (caught) {
+        report(caught)
+      }
+    },
+    [repo, report, setNpcSheets],
+  )
+
+  const updateNpcSheet = useCallback(
+    async (entryId: string, recipe: (sheet: NpcSheet) => NpcSheetPatch) => {
+      const current = npcSheetsRef.current.find((sheet) => sheet.entryId === entryId)
+      if (!current) return
+      const patch = recipe(current)
+      if (Object.keys(patch).length === 0) return
+      const updatedAt = new Date().toISOString()
+      const nextSheet = { ...current, ...patch, updatedAt }
+      setNpcSheets((sheets) => sheets.map((sheet) => (sheet.entryId === entryId ? nextSheet : sheet)))
+      setEntries((rows) => rows.map((entry) => (entry.id === entryId ? { ...entry, updatedAt } : entry)))
+      try {
+        await queue(`npc:${entryId}`, () => repo.updateNpcSheet(entryId, patch))
+      } catch (caught) {
+        report(caught)
+      }
+    },
+    [queue, repo, report, setNpcSheets],
+  )
+
+  const ensureCatalogSheet = useCallback(
+    async (entryId: string) => {
+      try {
+        const sheet = await repo.createCatalogSheet(entryId)
+        if (campaignIdRef.current !== sheet.campaignId) return
+        setCatalogSheets((current) => (current.some((item) => item.entryId === sheet.entryId) ? current : [...current, sheet]))
+      } catch (caught) {
+        report(caught)
+      }
+    },
+    [repo, report, setCatalogSheets],
+  )
+
+  const updateCatalogSheet = useCallback(
+    async (entryId: string, recipe: (sheet: CatalogSheet) => CatalogSheetPatch) => {
+      const current = catalogSheetsRef.current.find((sheet) => sheet.entryId === entryId)
+      if (!current) return
+      const patch = recipe(current)
+      if (Object.keys(patch).length === 0) return
+      const updatedAt = new Date().toISOString()
+      const nextSheet = { ...current, ...patch, updatedAt }
+      setCatalogSheets((sheets) => sheets.map((sheet) => (sheet.entryId === entryId ? nextSheet : sheet)))
+      setEntries((rows) => rows.map((entry) => (entry.id === entryId ? { ...entry, updatedAt } : entry)))
+      try {
+        await queue(`catalog:${entryId}`, () => repo.updateCatalogSheet(entryId, patch))
+      } catch (caught) {
+        report(caught)
+      }
+    },
+    [queue, repo, report, setCatalogSheets],
+  )
+
+  const ensureMonsterSheet = useCallback(
+    async (entryId: string) => {
+      try {
+        const sheet = await repo.createMonsterSheet(entryId)
+        if (campaignIdRef.current !== sheet.campaignId) return
+        setMonsterSheets((current) => (current.some((item) => item.entryId === sheet.entryId) ? current : [...current, sheet]))
+      } catch (caught) {
+        report(caught)
+      }
+    },
+    [repo, report, setMonsterSheets],
+  )
+
+  const updateMonsterSheet = useCallback(
+    async (entryId: string, recipe: (sheet: MonsterSheet) => MonsterSheetPatch) => {
+      const current = monsterSheetsRef.current.find((sheet) => sheet.entryId === entryId)
+      if (!current) return
+      const patch = recipe(current)
+      if (Object.keys(patch).length === 0) return
+      const updatedAt = new Date().toISOString()
+      const nextSheet = { ...current, ...patch, updatedAt }
+      setMonsterSheets((sheets) => sheets.map((sheet) => (sheet.entryId === entryId ? nextSheet : sheet)))
+      setEntries((rows) => rows.map((entry) => (entry.id === entryId ? { ...entry, updatedAt } : entry)))
+      try {
+        await queue(`monster:${entryId}`, () => repo.updateMonsterSheet(entryId, patch))
+      } catch (caught) {
+        report(caught)
+      }
+    },
+    [queue, repo, report, setMonsterSheets],
+  )
+
+  const createStickyNote = useCallback(async () => {
+    if (!activeCampaignId) throw new Error("Choose a campaign first.")
+    const note = await repo.createStickyNote(activeCampaignId)
+    if (campaignIdRef.current === note.campaignId) {
+      setStickyNotes((current) => (current.some((item) => item.id === note.id) ? current : [note, ...current]))
+    }
+    return note
+  }, [activeCampaignId, repo])
+
+  const updateStickyNote = useCallback(
+    async (id: string, patch: StickyNotePatch) => {
+      setStickyNotes((current) =>
+        current.map((note) => (note.id === id ? { ...note, ...patch, updatedAt: new Date().toISOString() } : note)),
+      )
+      try {
+        await queue(`note:${id}`, () => repo.updateStickyNote(id, patch))
+      } catch (caught) {
+        report(caught)
+      }
+    },
+    [queue, repo, report],
+  )
+
+  const deleteStickyNote = useCallback(
+    async (id: string) => {
+      try {
+        await repo.deleteStickyNote(id)
+        setStickyNotes((current) => current.filter((note) => note.id !== id))
+      } catch (caught) {
+        report(caught)
+      }
+    },
+    [repo, report],
+  )
+
   const uploadImage = useCallback(
     async (file: File) => {
       if (!activeCampaignId) throw new Error("Choose a campaign first.")
@@ -562,6 +865,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     listItems,
     plotSubsections,
     storyItems,
+    pcSheets,
+    npcSheets,
+    catalogSheets,
+    monsterSheets,
+    stickyNotes,
+    notesOpen,
     campaignsLoaded,
     entriesLoadedFor,
     activeCampaignId,
@@ -592,6 +901,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     createStoryItem,
     updateStoryItem,
     deleteStoryItem,
+    ensurePcSheet,
+    updatePcSheet,
+    ensureNpcSheet,
+    updateNpcSheet,
+    ensureCatalogSheet,
+    updateCatalogSheet,
+    ensureMonsterSheet,
+    updateMonsterSheet,
+    setNotesOpen,
+    createStickyNote,
+    updateStickyNote,
+    deleteStickyNote,
     uploadImage,
     imageUrl,
     deleteStoredImage,

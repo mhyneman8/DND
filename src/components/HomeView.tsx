@@ -5,6 +5,8 @@ import { formatWhen, messageOf, recentEntries } from "../lib/text.ts"
 import type { Campaign, RichDoc } from "../lib/types.ts"
 import { useAutosave } from "../lib/useAutosave.ts"
 import { useApp } from "../state/AppState.tsx"
+import { AfflictionMark } from "./AfflictionMark.tsx"
+import { StickyBoard } from "./StickyNotes.tsx"
 import { ColorSwatches } from "./ColorSwatches.tsx"
 import { RichTextField } from "./RichTextField.tsx"
 import { fieldClass, primaryClass } from "./styles.ts"
@@ -18,7 +20,7 @@ export function HomeView() {
 }
 
 function CampaignHome({ campaign }: { campaign: Campaign }) {
-  const { entries, storyItems, entriesLoadedFor, selectSection, selectEntry, openEntry } = useApp()
+  const { entries, links, storyItems, entriesLoadedFor, notesOpen, setNotesOpen, selectSection, selectEntry, openEntry } = useApp()
   const ready = entriesLoadedFor === campaign.id
   const campaignEntries = entries.filter((entry) => entry.campaignId === campaign.id)
   const prep = storyItems
@@ -86,6 +88,27 @@ function CampaignHome({ campaign }: { campaign: Campaign }) {
       </section>
 
       <section>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="kicker">Sticky notes</h2>
+          {!notesOpen && (
+            <button type="button" className="text-sm text-muted hover:text-cream" onClick={() => setNotesOpen(true)}>
+              Pop out
+            </button>
+          )}
+        </div>
+        {notesOpen ? (
+          <p className="text-sm text-muted">
+            These notes are in the window.{" "}
+            <button type="button" className="text-[var(--campaign)]" onClick={() => setNotesOpen(false)}>
+              Put them back
+            </button>
+          </p>
+        ) : (
+          <StickyBoard />
+        )}
+      </section>
+
+      <section>
         <h2 className="kicker mb-3">Campaign notes</h2>
         <CampaignNotes key={campaign.id} campaign={campaign} />
       </section>
@@ -101,9 +124,10 @@ function CampaignHome({ campaign }: { campaign: Campaign }) {
             {recent.map((entry) => (
               <li key={entry.id}>
                 <button type="button" onClick={() => openEntry(entry)} className="flex w-full items-baseline justify-between gap-4 py-3 text-left hover:text-[var(--campaign)]">
-                  <span>
-                    <span className="text-base">{entry.name}</span>
-                    <span className="ml-3 text-[10px] tracking-wide text-faint uppercase">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-base">{entry.name}</span>
+                    <AfflictionMark entryId={entry.id} entries={campaignEntries} links={links} />
+                    <span className="shrink-0 text-[10px] tracking-wide text-faint uppercase">
                       {sectionById(entry.section).navLabel}
                     </span>
                   </span>

@@ -77,10 +77,138 @@ export type StoryItem = {
   name: string
   sessionDate: string | null
   body: RichDoc
+  imagePath: string | null
   resolved: boolean
   showOnHome: boolean
   createdAt: string
   updatedAt: string
 }
 
-export type StoryItemPatch = Partial<Pick<StoryItem, "name" | "sessionDate" | "body" | "resolved" | "showOnHome">>
+export type StoryItemPatch = Partial<Pick<StoryItem, "name" | "sessionDate" | "body" | "imagePath" | "resolved" | "showOnHome">>
+
+export type PcPerson = {
+  id: string
+  label: string
+}
+
+export type PcEvent = {
+  id: string
+  sessionTag: string
+  text: string
+  createdAt: string
+}
+
+export type PcObjective = {
+  id: string
+  label: string
+}
+
+export type PcSheet = {
+  entryId: string
+  campaignId: string
+  className: string
+  subclass: string
+  sheetUrl: string
+  bio: RichDoc
+  subclassNotes: RichDoc
+  people: PcPerson[]
+  events: PcEvent[]
+  objectives: PcObjective[]
+  updatedAt: string
+}
+
+export type PcSheetPatch = Partial<
+  Pick<PcSheet, "className" | "subclass" | "sheetUrl" | "bio" | "subclassNotes" | "people" | "events" | "objectives">
+>
+
+export type AffinityTone = "hostile" | "neutral" | "friendly"
+
+export type NpcSheet = {
+  entryId: string
+  campaignId: string
+  description: RichDoc
+  motivations: RichDoc
+  affinity: number
+  hostileAt: number
+  friendlyAt: number
+  people: PcPerson[]
+  updatedAt: string
+}
+
+export type NpcSheetPatch = Partial<
+  Pick<NpcSheet, "description" | "motivations" | "affinity" | "hostileAt" | "friendlyAt" | "people">
+>
+
+export type CatalogKind = "affliction" | "location" | "item"
+
+export type CatalogSheet = {
+  entryId: string
+  campaignId: string
+  kind: CatalogKind
+  savingThrow: string
+  damage: string
+  place: string
+  effect: string
+  notes: RichDoc
+  updatedAt: string
+}
+
+export type CatalogSheetPatch = Partial<Pick<CatalogSheet, "savingThrow" | "damage" | "place" | "effect" | "notes">>
+
+export type AbilityScores = {
+  str: number
+  dex: number
+  con: number
+  int: number
+  wis: number
+  cha: number
+}
+
+export type StatLine = {
+  id: string
+  name: string
+  text: string
+}
+
+export type MonsterSheet = {
+  entryId: string
+  campaignId: string
+  size: string
+  creatureType: string
+  alignment: string
+  armorClass: string
+  hitPoints: string
+  speed: string
+  abilities: AbilityScores
+  savingThrows: string
+  skills: string
+  damageVulnerabilities: string
+  damageResistances: string
+  damageImmunities: string
+  conditionImmunities: string
+  senses: string
+  languages: string
+  challenge: string
+  traits: StatLine[]
+  actions: StatLine[]
+  bonusActions: StatLine[]
+  reactions: StatLine[]
+  legendaryActions: StatLine[]
+  notes: RichDoc
+  source: string
+  updatedAt: string
+}
+
+export type MonsterSheetPatch = Partial<Omit<MonsterSheet, "entryId" | "campaignId" | "updatedAt">>
+
+export type StickyNote = {
+  id: string
+  campaignId: string
+  body: string
+  characterId: string | null
+  sortIndex: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type StickyNotePatch = Partial<Pick<StickyNote, "body" | "characterId" | "sortIndex">>
