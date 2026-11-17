@@ -5,6 +5,7 @@ import { catalogSheetFromEntry, normalizeCatalogSheet } from "./catalog.ts"
 import { monsterSheetFromEntry, normalizeMonsterSheet } from "./monster.ts"
 import { npcSheetFromEntry, normalizeNpcSheet } from "./npc.ts"
 import { asPcEvents, asPcObjectives, asPcPeople, pcSheetFromEntry } from "./pc.ts"
+import { authRedirectUrl } from "./supabase.ts"
 import { asDoc } from "./text.ts"
 import type { Campaign, CampaignPatch, CatalogSheet, CatalogSheetPatch, Entry, EntryLink, EntryPatch, ListItem, MonsterSheet, MonsterSheetPatch, NpcSheet, NpcSheetPatch, PanelSectionId, PcSheet, PcSheetPatch, PlotSubsection, PlotSubsectionPatch, StickyNote, StickyNotePatch, StoryItem, StoryItemPatch, StoryKind } from "./types.ts"
 
@@ -447,7 +448,11 @@ export class SupabaseRepository implements Repository {
   }
 
   async signUp(email: string, password: string) {
-    const { data, error } = await this.client.auth.signUp({ email, password })
+    const { data, error } = await this.client.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: authRedirectUrl() },
+    })
     this.fail(error)
     return { needsConfirmation: !data.session }
   }
