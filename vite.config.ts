@@ -4,6 +4,8 @@ import { defineConfig } from "vite"
 import { VitePWA } from "vite-plugin-pwa"
 
 export default defineConfig({
+  // Project site is served from https://mhyneman8.github.io/DND/
+  base: "/DND/",
   plugins: [
     react(),
     tailwindcss(),
@@ -17,7 +19,8 @@ export default defineConfig({
         theme_color: "#1a1612",
         background_color: "#1a1612",
         display: "standalone",
-        start_url: "/",
+        start_url: "/DND/",
+        scope: "/DND/",
         icons: [
           {
             src: "favicon.svg",
